@@ -97,12 +97,14 @@ c:\workspace\buddy\
 
 ---
 
-## 5. Storage Directory Structure (User Documents)
+## 5. Storage Directory Structure (~/.buddy)
 
-Rather than storing files internally inside the project sandbox, Buddy saves all logs to the user's standardized Documents folder, ensuring they are human-readable, editable, and easy to find:
+Rather than storing files internally inside the project sandbox, Buddy saves all logs and configuration files to the user's hidden home directory, ensuring they are clean, centralized, and persistent:
 
 ```
-C:\Users\<Username>\Documents\Buddy\
+C:\Users\<Username>\.buddy\
+│
+├── config.json                 # Local JSON config (GEMINI_API_KEY override/fallback)
 │
 ├── transcripts\                # Continuous Raw Markdown Logs
 │   ├── 2026-05-29_raw.md       # Raw, chronological Markdown transcript

@@ -36,7 +36,7 @@ graph TD
 *   **User:** The primary operator. The user speaks naturally and participates in calls. They interact with Buddy only via the Windows System Tray menu to configure settings or generate summaries.
 *   **Windows OS Audio System:** The underlying Core Audio / WASAPI layer, serving both microphone capture devices (Input) and active system playback devices (Loopback Output).
 *   **Buddy Application:** The background software managing high-fidelity concurrent recording, transcription loop processing, and storage orchestration.
-*   **Local Markdown Files:** Local files stored in the User's `Documents\Buddy\` folder that act as the persistent transcript log and synthesized daily summaries.
+*   **Local Markdown Files:** Local files stored in the User's `~/.buddy/` folder that act as the persistent transcript log and synthesized daily summaries.
 *   **Google Gemini AI API:** The remote AI model acting as the speech-to-text translator (for micro-buffers) and the daily summary synthesizer.
 
 ---
@@ -54,7 +54,7 @@ graph TB
             Client[AI Client Container - Gemini SDK]
         end
         
-        Disk[(User Documents File Store)]
+        Disk[(User Home .buddy Store)]
     end
 
     subgraph Remote Services
@@ -77,7 +77,7 @@ graph TB
 1.  **Tray UI Container (PySide6):** Manages the application lifecycle. Runs the main thread, renders system tray icons, binds context menus, displays Windows toast notifications, and spawns the audio recording background thread.
 2.  **Audio Core Container (Threaded WASAPI):** An isolated, high-priority thread that loops continuously. It captures dual WASAPI audio (mic + loopback), mixes down the samples, converts them to standard WAV byte streams, and periodically hands them over to the AI Client.
 3.  **AI Client Container (Gemini SDK / Keyring):** Manages credential retrieval from the Windows Credential Manager and coordinates API requests. It handles low-latency 30-second transcription requests and coordinates the end-of-day summary compilation.
-4.  **User Documents File Store:** A standard, transparent directory (`Documents\Buddy`) acting as the application database. It stores `YYYY-MM-DD_raw.md` for live appending and `YYYY-MM-DD_summary.md` for summaries.
+4.  **User Home .buddy Store:** A hidden, centralized directory (`~/.buddy`) acting as the application database. It stores `config.json` for credentials, `YYYY-MM-DD_raw.md` for live appending, and `YYYY-MM-DD_summary.md` for summaries.
 
 ---
 

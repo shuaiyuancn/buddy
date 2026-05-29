@@ -29,7 +29,7 @@ Buddy captures audio in continuous, lightweight buffers, transcribes them, and i
 *   **Description:** Rather than storing large, raw audio recordings on disk or cutting files into complicated chunks, Buddy transcribes sliding audio windows (e.g., every 30 seconds) and appends the text directly to a local Markdown file.
 *   **Requirements:**
     *   **Log Storage Path:** Saved in the user's home directory:  
-        `%USERPROFILE%\Documents\Buddy\transcripts\YYYY-MM-DD_raw.md`
+        `%USERPROFILE%\.buddy\transcripts\YYYY-MM-DD_raw.md`
     *   **Append Operation:** Every 30-second mixed audio buffer is transcribed (using a lightweight speech-to-text service or Gemini inline requests) and appended instantly in the following format:
         ```markdown
         ### [21:15:30]
@@ -50,7 +50,7 @@ Buddy captures audio in continuous, lightweight buffers, transcribes them, and i
     *   **Compilation Prompt:** Buddy reads the active daily raw Markdown log (`YYYY-MM-DD_raw.md`) and sends it to Gemini (e.g., `gemini-1.5-pro` or `gemini-1.5-flash`) along with an analytical prompt instruction.
     *   **Semantic Synthesis:** Gemini parses the spoken cues, segments the day's timeline, classifies conversational contexts, and extracts key spontaneous ideas.
     *   **Output File:** Saved directly in the user's visible folder:  
-        `%USERPROFILE%\Documents\Buddy\summaries\YYYY-MM-DD_summary.md`
+        `%USERPROFILE%\.buddy\summaries\YYYY-MM-DD_summary.md`
     *   **Structure of Output:**
         *   **Executive Daily Summary:** High-level narrative of the day's activities.
         *   **Segmented Meeting Timeline:** Automatically grouped sections based on detected spoken cues.
@@ -68,15 +68,15 @@ To keep Buddy distraction-free, the application has **no standard main window in
 *   **Menu Options:**
     *   `Resume / Pause Listening`
     *   `Generate Summary (On-Demand)`
-    *   `Open Transcripts Directory` (Opens `%USERPROFILE%\Documents\Buddy\transcripts\`)
-    *   `Open Summaries Directory` (Opens `%USERPROFILE%\Documents\Buddy\summaries\`)
+    *   `Open Transcripts Directory` (Opens `%USERPROFILE%\.buddy\transcripts\`)
+    *   `Open Summaries Directory` (Opens `%USERPROFILE%\.buddy\summaries\`)
     *   `Settings` (Configure API Keys, toggle audio input devices)
     *   `Exit`
 
 ### 3.2. Native Windows Notifications
 *   **Description:** Instead of complex in-app popups, Buddy uses standard Windows toast notifications to communicate state changes:
     *   *Notification 1:* *"Buddy is now active and listening in the background."*
-    *   *Notification 2:* *"Summary generated successfully! Saved to Documents\Buddy\summaries."*
+    *   *Notification 2:* *"Summary generated successfully! Saved to .buddy\summaries."*
 
 ---
 
