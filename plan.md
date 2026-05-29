@@ -12,9 +12,9 @@ This file tracks the real-time development progress of **Buddy** - your passive,
 - [x] **Task 2: Asynchronous Audio Capture & Mixing Engine**
     - [x] Implement `src/audio/mixer.py` for normalizations.
     - [x] Implement `src/audio/stream_handler.py` for WASAPI speaker loopback and mic capture.
-- [ ] **Task 3: Live Transcriber Service & Markdown Logging**
-    - [ ] Implement `src/ai/transcriber.py` to route 60s audio buffers directly to Gemini 1.5 Flash.
-    - [ ] Build file appender routines writing directly to `%USERPROFILE%\Documents\Buddy\transcripts\YYYY-MM-DD_raw.md`.
+- [x] **Task 3: Live Transcriber Service & Markdown Logging**
+    - [x] Implement `src/ai/transcriber.py` to route 60s audio buffers directly to Gemini 1.5 Flash.
+    - [x] Build file appender routines writing directly to `%USERPROFILE%\Documents\Buddy\transcripts\YYYY-MM-DD_raw.md`.
 - [ ] **Task 4: System Tray GUI & Notification Controller**
     - [ ] Implement `src/ui/tray_icon.py` using PySide6.
     - [ ] Add menu controls: Resume/Pause, Generate Summary, Open Logs, Settings, Exit.
