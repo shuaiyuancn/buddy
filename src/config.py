@@ -2,7 +2,7 @@ import os
 import sys
 import time
 from pathlib import Path
-from PySide6.QtWidgets import QApplication, QSystemTrayIcon
+from PySide6.QtWidgets import QApplication, QSystemTrayIcon, QStyle
 from PySide6.QtGui import QIcon
 
 # 1. Resolve and Establish Directories in user's home Documents folder
@@ -34,7 +34,9 @@ def check_api_key_or_toast_and_exit():
     tray = QSystemTrayIcon()
     
     # We can use standard warning icon
-    tray.setIcon(QSystemTrayIcon.MessageIcon.Critical)
+    style = app.style() if app else QApplication.style()
+    critical_icon = style.standardIcon(QStyle.StandardPixmap.SP_MessageBoxCritical)
+    tray.setIcon(critical_icon)
     tray.show()
     
     # Send Toast message
