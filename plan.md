@@ -18,8 +18,8 @@ This file tracks the real-time development progress of **Buddy** - your passive,
 - [x] **Task 4: System Tray GUI & Notification Controller**
     - [x] Implement `src/ui/tray_icon.py` using PySide6.
     - [x] Add menu controls: Resume/Pause, Generate Summary, Open Logs, Settings, Exit.
-- [ ] **Task 5: Main Orchestrator Integration**
-    - [ ] Implement `src/main.py` to coordinate configuration, audio capturing loops, and GUI controls.
+- [x] **Task 5: Main Orchestrator Integration**
+    - [x] Implement `src/main.py` to coordinate configuration, audio capturing loops, and GUI controls.
 - [ ] **Task 6: Verification & End-to-End Validation**
     - [ ] Run a test suite validating thread safety, API upload stability, and markdown log formatting.
     - [ ] Run a local test execute verifying background running loop.
