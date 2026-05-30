@@ -75,7 +75,7 @@ def test_transcribe_chunk_gemini_interaction(mock_model_class, temp_transcript_d
     result = service.transcribe_chunk(dummy_wav)
 
     # Verify Gemini is called with the expected prompt and inline audio-structure
-    mock_model_class.assert_called_with("gemini-1.5-flash")
+    mock_model_class.assert_called_with("gemini-2.5-flash")
     args, kwargs = mock_model.generate_content.call_args
     prompt_list = args[0]
     

@@ -85,7 +85,7 @@ class TranscriberService:
                 "data": wav_bytes
             }
 
-            model = genai.GenerativeModel("gemini-1.5-flash")
+            model = genai.GenerativeModel("gemini-2.5-flash")
             
             prompt = (
                 "Transcribe the following audio stream. Output ONLY the verbatim speech content. "
@@ -93,7 +93,12 @@ class TranscriberService:
             )
             
             response = model.generate_content([prompt, audio_part])
-            transcribed_text = response.text.strip()
+            
+            try:
+                transcribed_text = response.text.strip()
+            except Exception:
+                # If there are no parts in the response (e.g. pure silence), response.text raises an exception
+                transcribed_text = ""
             
             # Log to markdown file
             if transcribed_text:
@@ -120,7 +125,7 @@ class TranscriberService:
             return "No transcript logs available to synthesize for this day."
 
         try:
-            model = genai.GenerativeModel("gemini-1.5-pro")
+            model = genai.GenerativeModel("gemini-2.5-pro")
             
             summary_prompt = (
                 "You are Buddy, a world-class executive chief of staff and personal assistant.\n"
