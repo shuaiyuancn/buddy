@@ -198,5 +198,4 @@ class TrayIconController(QObject):
         """
         self.audio_handler.stop()
         self.tray.hide()
-        QMessageBox.information(None, "Buddy Exit", "Buddy has been closed cleanly.")
         sys.exit(0)
