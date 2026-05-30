@@ -27,4 +27,7 @@ This file tracks the real-time development progress of **Buddy** - your passive,
     - [x] Relocate transcripts and summaries to `~/.buddy/transcripts/` and `~/.buddy/summaries/`.
     - [x] Implement local file `~/.buddy/config.json` configuration fallback and auto-generation with warning exit toast.
     - [x] Verify complete TDD automated test coverage and execution.
+- [ ] **Task 8: Pure Silence Detection Optimization**
+    - [ ] Inspect the audio content/amplitude in the captured audio chunk before transmission.
+    - [ ] Skip routing/sending to the Gemini API if the chunk is determined to contain pure silence or noise below a defined threshold.
 
