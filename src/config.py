@@ -42,26 +42,47 @@ def load_config():
         print(f"[Warning] Failed to parse {CONFIG_FILE}: {e}", file=sys.stderr)
         return ""
 
-def check_api_key_or_toast_and_exit():
+def load_full_config():
     """
-    Verifies that the GEMINI_API_KEY is configured.
-    Checks the local configuration file config.json first, and falls back to
-    the environment variable. If missing/empty everywhere, fires a native Windows 
-    Toast notification and exits immediately.
+    Load full configuration from CONFIG_FILE. If missing, auto-creates a 
+    template config.json with all options.
+    Returns the parsed configuration dictionary.
     """
-    # 1. Look up in ~/.buddy/config.json
-    api_key = load_config()
+    USER_BUDDY_DIR.mkdir(parents=True, exist_ok=True)
+    
+    default_config = {
+        "GEMINI_API_KEY": "",
+        "STT_PROVIDER": "gemini",
+        "GCP_PROJECT_ID": "",
+        "GCP_REGION": "us",
+        "GCP_SERVICE_ACCOUNT_KEY_PATH": "",
+        "GCP_LANGUAGES": ["zh-CN", "en-US"]
+    }
 
-    # 2. Fallback to GEMINI_API_KEY environment variable
-    if not api_key:
-        api_key = os.environ.get("GEMINI_API_KEY", "")
+    if not CONFIG_FILE.exists():
+        try:
+            with open(CONFIG_FILE, "w", encoding="utf-8") as f:
+                json.dump(default_config, f, indent=4)
+        except Exception as e:
+            print(f"[Warning] Failed to write default config template to {CONFIG_FILE}: {e}", file=sys.stderr)
+        return default_config
 
-    if api_key:
-        return api_key
+    try:
+        with open(CONFIG_FILE, "r", encoding="utf-8") as f:
+            data = json.load(f)
+            if not isinstance(data, dict):
+                return default_config
+            merged = {**default_config, **data}
+            return merged
+    except Exception as e:
+        print(f"[Warning] Failed to parse {CONFIG_FILE}: {e}", file=sys.stderr)
+        return default_config
 
-    # Both missing - trigger native Windows notification
-    print("CRITICAL CONFIGURATION ERROR: GEMINI_API_KEY is not configured.", file=sys.stderr)
-    print(f"Please write your key inside '{CONFIG_FILE}' or set the GEMINI_API_KEY environment variable.", file=sys.stderr)
+def trigger_toast_and_exit(message: str):
+    """
+    Triggers a native Windows critical Toast notification and exits immediately.
+    """
+    print(f"CRITICAL CONFIGURATION ERROR: {message}", file=sys.stderr)
     
     # Initialize a dummy QApplication for native tray notification
     app = QApplication.instance() or QApplication(sys.argv)
@@ -73,10 +94,10 @@ def check_api_key_or_toast_and_exit():
     tray.setIcon(critical_icon)
     tray.show()
     
-    # Send Toast message instructing user to check the newly created config file
+    # Send Toast message instructing user of the specific configuration error
     tray.showMessage(
         "Buddy - Config Error",
-        f"GEMINI_API_KEY is missing! Enter your key in {CONFIG_FILE} and restart.",
+        message,
         QSystemTrayIcon.MessageIcon.Critical,
         10000  # Show for 10 seconds
     )
@@ -85,6 +106,44 @@ def check_api_key_or_toast_and_exit():
     time.sleep(3.0)
     sys.exit(1)
 
+def check_api_key_or_toast_and_exit():
+    """
+    Verifies that the GEMINI_API_KEY is configured.
+    Checks the local configuration file config.json first, and falls back to
+    the environment variable. If missing/empty everywhere, fires a native Windows 
+    Toast notification and exits immediately.
+    
+    If STT_PROVIDER is "gcp", it also verifies GCP_PROJECT_ID is present, and
+    that either GCP_SERVICE_ACCOUNT_KEY_PATH is specified or GOOGLE_APPLICATION_CREDENTIALS
+    is present in the environment.
+    """
+    # 1. Load full config
+    config = load_full_config()
+    api_key = config.get("GEMINI_API_KEY", "")
+
+    # 2. Fallback to GEMINI_API_KEY environment variable
+    if not api_key:
+        api_key = os.environ.get("GEMINI_API_KEY", "")
+
+    # Always verify GEMINI_API_KEY (needed for summaries)
+    if not api_key:
+        trigger_toast_and_exit(f"GEMINI_API_KEY is missing! Enter your key in {CONFIG_FILE} and restart.")
+
+    # 3. If STT_PROVIDER is gcp, perform additional checks
+    stt_provider = config.get("STT_PROVIDER", "gemini").lower()
+    if stt_provider == "gcp":
+        project_id = config.get("GCP_PROJECT_ID", "") or os.environ.get("GOOGLE_CLOUD_PROJECT", "")
+        if not project_id:
+            trigger_toast_and_exit("GCP_PROJECT_ID is missing for GCP STT! Configure it in config.json.")
+
+        sa_path = config.get("GCP_SERVICE_ACCOUNT_KEY_PATH", "")
+        has_env_credentials = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS") is not None
+        if not sa_path and not has_env_credentials:
+            trigger_toast_and_exit("GCP credentials missing! Provide a service account key path or environment credentials.")
+
+    return api_key
+
 # Auto-initialize directories upon module load
 initialize_directories()
+
 

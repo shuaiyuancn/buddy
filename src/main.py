@@ -10,6 +10,10 @@ def main():
     # 1. Enforce windowless API Key check. Aborts and fires Windows toast notification if missing.
     api_key = check_api_key_or_toast_and_exit()
 
+    from src.config import load_full_config
+    config_dict = load_full_config()
+    config_dict["GEMINI_API_KEY"] = api_key
+
     # 2. Initialize main Qt Application loop
     app = QApplication(sys.argv)
     
@@ -18,7 +22,7 @@ def main():
 
     # 3. Instantiate underlying services
     print("[Buddy] Initializing Gemini Transcriber Service...")
-    transcriber = TranscriberService(api_key=api_key)
+    transcriber = TranscriberService(api_key=api_key, config_dict=config_dict)
 
     print("[Buddy] Initializing Threaded Audio Capture Engine...")
     audio_handler = AudioStreamHandler(target_sr=16000, window_duration_sec=60)

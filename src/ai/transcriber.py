@@ -60,26 +60,64 @@ class FileAppender:
 
 class TranscriberService:
     """
-    Coordinates speech-to-text transcribing and end-of-day summary compilation via Gemini.
+    Coordinates speech-to-text transcribing and end-of-day summary compilation via Gemini/GCP STT.
     """
-    def __init__(self, api_key: str = None):
+    def __init__(self, api_key: str = None, config_dict: dict = None):
         self.api_key = api_key or os.environ.get("GEMINI_API_KEY")
         if self.api_key:
             genai.configure(api_key=self.api_key)
             
+        self.config = config_dict or {}
+        self.stt_provider = self.config.get("STT_PROVIDER", "gemini").lower()
+        self.gcp_client = None
+        
+        if self.stt_provider == "gcp":
+            self._init_gcp_client()
+
         self.appender = FileAppender()
+
+    def _init_gcp_client(self):
+        """
+        Thread-safe dynamic import and initialization of Google Cloud Speech Client.
+        """
+        try:
+            from google.cloud.speech_v2 import SpeechClient
+            from google.api_core.client_options import ClientOptions
+            
+            # Programmatically register local service account key path if specified
+            sa_path = self.config.get("GCP_SERVICE_ACCOUNT_KEY_PATH")
+            if sa_path:
+                os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = sa_path
+                
+            region = self.config.get("GCP_REGION", "us")
+            self.gcp_client = SpeechClient(
+                client_options=ClientOptions(
+                    api_endpoint=f"{region}-speech.googleapis.com"
+                )
+            )
+        except Exception as e:
+            print(f"[Warning] Failed to initialize Google Cloud Speech Client: {e}")
 
     def transcribe_chunk(self, wav_bytes: bytes) -> str:
         """
-        Sends raw WAV audio bytes to Gemini 1.5 Flash for verbatim speech-to-text.
+        Routes the transcription task to the configured speech-to-text provider.
         """
-        if not self.api_key:
-            return "[Error: GEMINI_API_KEY environment variable is missing]"
         if not wav_bytes:
             return ""
 
+        if self.stt_provider == "gcp":
+            return self._transcribe_gcp(wav_bytes)
+        else:
+            return self._transcribe_gemini(wav_bytes)
+
+    def _transcribe_gemini(self, wav_bytes: bytes) -> str:
+        """
+        Sends raw WAV audio bytes to Gemini 2.5 Flash for verbatim speech-to-text.
+        """
+        if not self.api_key:
+            return "[Error: GEMINI_API_KEY environment variable is missing]"
+
         try:
-            # Inline audio part dictionary (under 20 MB, which our 60s wav files certainly are)
             audio_part = {
                 "mime_type": "audio/wav",
                 "data": wav_bytes
@@ -97,7 +135,6 @@ class TranscriberService:
             try:
                 transcribed_text = response.text.strip()
             except Exception:
-                # If there are no parts in the response (e.g. pure silence), response.text raises an exception
                 transcribed_text = ""
             
             # Log to markdown file
@@ -107,6 +144,55 @@ class TranscriberService:
             return transcribed_text
         except Exception as e:
             error_msg = f"[Transcription Error: {str(e)}]"
+            self.appender.append_transcription(error_msg)
+            return error_msg
+
+    def _transcribe_gcp(self, wav_bytes: bytes) -> str:
+        """
+        Sends raw WAV audio bytes to GCP Speech-to-Text V2 using the Chirp-3 model.
+        """
+        if not self.gcp_client:
+            self._init_gcp_client()
+            if not self.gcp_client:
+                return "[Error: Google Cloud Speech Client is not initialized]"
+
+        try:
+            from google.cloud.speech_v2.types import cloud_speech
+            
+            project_id = self.config.get("GCP_PROJECT_ID") or os.environ.get("GOOGLE_CLOUD_PROJECT")
+            if not project_id:
+                return "[Error: GCP_PROJECT_ID is missing from config]"
+                
+            region = self.config.get("GCP_REGION", "us")
+            languages = self.config.get("GCP_LANGUAGES", ["zh-CN", "en-US"])
+            
+            config = cloud_speech.RecognitionConfig(
+                auto_decoding_config=cloud_speech.AutoDetectDecodingConfig(),
+                language_codes=languages,
+                model="chirp_3",
+            )
+            
+            request = cloud_speech.RecognizeRequest(
+                recognizer=f"projects/{project_id}/locations/{region}/recognizers/_",
+                config=config,
+                content=wav_bytes,
+            )
+            
+            response = self.gcp_client.recognize(request=request)
+            
+            transcripts = []
+            for result in response.results:
+                if result.alternatives:
+                    transcripts.append(result.alternatives[0].transcript)
+            transcribed_text = " ".join(transcripts).strip()
+            
+            # Log to markdown file
+            if transcribed_text:
+                self.appender.append_transcription(transcribed_text)
+                
+            return transcribed_text
+        except Exception as e:
+            error_msg = f"[Transcription Error (GCP): {str(e)}]"
             self.appender.append_transcription(error_msg)
             return error_msg
 
