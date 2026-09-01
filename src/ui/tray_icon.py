@@ -7,17 +7,19 @@ from pathlib import Path
 from PySide6.QtWidgets import QSystemTrayIcon, QMenu, QMessageBox
 from PySide6.QtGui import QIcon, QPixmap, QPainter, QColor, QPen
 from PySide6.QtCore import QObject, Slot, Qt
-from src.config import TRANSCRIPTS_DIR, SUMMARIES_DIR
+from src.config import TRANSCRIPTS_DIR, SUMMARIES_DIR, APP_VERSION
+from src.updater import AutoUpdater
 
 class TrayIconController(QObject):
     """
     Coordinates System Tray GUI interactions, context menus, and toast notifications.
     """
-    def __init__(self, audio_handler, transcriber_service):
+    def __init__(self, audio_handler, transcriber_service, updater: AutoUpdater = None):
         super().__init__()
         self.audio_handler = audio_handler
         self.transcriber = transcriber_service
         self.executor = concurrent.futures.ThreadPoolExecutor(max_workers=2, thread_name_prefix="buddy_worker")
+        self.updater = updater or AutoUpdater(parent=self)
 
         # Create main System Tray instance
         self.tray = QSystemTrayIcon(self)
@@ -38,11 +40,19 @@ class TrayIconController(QObject):
         # Connect audio chunk ready signal to our transcription service
         self.audio_handler.chunk_ready.connect(self.on_audio_chunk_ready)
 
+        # Connect Auto-Updater signals
+        self.updater.update_available.connect(self._on_update_available)
+        self.updater.update_started.connect(self._on_update_started)
+        self.updater.update_completed.connect(self._on_update_completed)
+        self.updater.update_error.connect(self.show_warning_notification)
+        self.updater.check_finished.connect(self._on_check_finished)
+
     def show(self):
         """
-        Launches the system tray and triggers the initial startup notification.
+        Launches the system tray, starts the auto-updater, and triggers the initial startup notification.
         """
         self.tray.show()
+        self.updater.start()
         self.tray.showMessage(
             "Buddy Active",
             "Buddy is running silently in the background and listening.",
@@ -103,6 +113,11 @@ class TrayIconController(QObject):
 
         open_summaries_action = self.menu.addAction("Open Summaries Folder")
         open_summaries_action.triggered.connect(self.on_open_summaries_folder)
+
+        self.menu.addSeparator()
+
+        check_update_action = self.menu.addAction(f"Check for Updates... (v{APP_VERSION})")
+        check_update_action.triggered.connect(self.on_check_for_updates)
 
         self.menu.addSeparator()
 
@@ -207,10 +222,68 @@ class TrayIconController(QObject):
         )
 
     @Slot()
+    def on_check_for_updates(self):
+        """
+        Manually triggers a check for new releases on GitHub.
+        """
+        self.tray.showMessage(
+            "Buddy - Update Check",
+            f"Checking GitHub ({self.updater.repo}) for newer releases...",
+            QSystemTrayIcon.MessageIcon.Information,
+            3000
+        )
+        self.updater.check_for_updates_async(manual=True)
+
+    @Slot(bool, str)
+    def _on_check_finished(self, update_found: bool, message: str):
+        """
+        Handles manual check result notification.
+        """
+        if not update_found:
+            self.tray.showMessage(
+                "Buddy - Updates",
+                message,
+                QSystemTrayIcon.MessageIcon.Information,
+                3000
+            )
+
+    @Slot(str, str)
+    def _on_update_available(self, version_tag: str, download_url: str):
+        """
+        Notifies user of newly found version.
+        """
+        self.tray.showMessage(
+            "Buddy - Update Available",
+            f"A new version (v{version_tag}) is available. Downloading update in background...",
+            QSystemTrayIcon.MessageIcon.Information,
+            5000
+        )
+
+    @Slot(str)
+    def _on_update_started(self, version_tag: str):
+        """
+        Updates tooltip during active binary download.
+        """
+        self.tray.setToolTip(f"Buddy - Downloading v{version_tag}...")
+
+    @Slot(str)
+    def _on_update_completed(self, version_tag: str):
+        """
+        Notifies user that update is ready and will restart.
+        """
+        self.tray.showMessage(
+            "Buddy - Update Ready",
+            f"v{version_tag} downloaded successfully. Restarting Buddy...",
+            QSystemTrayIcon.MessageIcon.Information,
+            4000
+        )
+
+    @Slot()
     def on_exit(self):
         """
         Cleanly stops background streams, flushes worker threads, and exits the application.
         """
+        self.updater.stop()
         self.audio_handler.stop()
         self.tray.hide()
         if hasattr(self, "executor") and self.executor is not None:

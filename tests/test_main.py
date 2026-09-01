@@ -48,7 +48,10 @@ def test_main_initialization_pipeline(
             "GCP_PROJECT_ID": "",
             "GCP_REGION": "us",
             "GCP_SERVICE_ACCOUNT_KEY_PATH": "",
-            "GCP_LANGUAGES": ["zh-CN", "en-US"]
+            "GCP_LANGUAGES": ["zh-CN", "en-US"],
+            "GITHUB_REPO": "shuaiyuancn/buddy",
+            "AUTO_UPDATE": True,
+            "UPDATE_CHECK_INTERVAL_HOURS": 1
         }
     )
     mock_audio_handler_class.assert_called_once_with(target_sr=16000, window_duration_sec=60)

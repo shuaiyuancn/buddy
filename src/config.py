@@ -5,12 +5,14 @@ import json
 from pathlib import Path
 from PySide6.QtWidgets import QApplication, QSystemTrayIcon, QStyle
 from PySide6.QtGui import QIcon
+from src.version import __version__
 
 # 1. Resolve and Establish Directories in user's hidden home directory
 USER_BUDDY_DIR = Path(os.environ.get("USERPROFILE", "C:\\")) / ".buddy"
 TRANSCRIPTS_DIR = USER_BUDDY_DIR / "transcripts"
 SUMMARIES_DIR = USER_BUDDY_DIR / "summaries"
 CONFIG_FILE = USER_BUDDY_DIR / "config.json"
+APP_VERSION = __version__
 
 def initialize_directories():
     """
@@ -56,7 +58,10 @@ def load_full_config():
         "GCP_PROJECT_ID": "",
         "GCP_REGION": "us",
         "GCP_SERVICE_ACCOUNT_KEY_PATH": "",
-        "GCP_LANGUAGES": ["zh-CN", "en-US"]
+        "GCP_LANGUAGES": ["zh-CN", "en-US"],
+        "GITHUB_REPO": "shuaiyuancn/buddy",
+        "AUTO_UPDATE": True,
+        "UPDATE_CHECK_INTERVAL_HOURS": 1
     }
 
     if not CONFIG_FILE.exists():
