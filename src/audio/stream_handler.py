@@ -11,6 +11,8 @@ from src.audio.vad import VoiceActivityDetector
 class AudioStreamHandler(QThread):
     # Qt Signal emitted when a mixed 60-second WAV chunk is completed
     chunk_ready = Signal(bytes)
+    # Signal emitted when real-time speech activity changes (True=speaking/active, False=sleeping/silent)
+    speech_activity_changed = Signal(bool)
     # Signal emitted for logging system warnings to the UI
     warning_logged = Signal(str)
 
@@ -25,6 +27,9 @@ class AudioStreamHandler(QThread):
 
         self._is_running = False
         self._is_paused = False
+        self._is_speech_active = False
+        self._silence_hangover_sec = 3
+        self._recent_speech_countdown = 0
         
         # Thread-safe queues for communication between worker threads and orchestrator
         self.mic_queue = queue.Queue()
@@ -43,6 +48,8 @@ class AudioStreamHandler(QThread):
         """
         self._is_running = True
         self._is_paused = False
+        self._is_speech_active = False
+        self._recent_speech_countdown = 0
         self.mixed_buffer = []
 
         # Start child recorders
@@ -87,6 +94,21 @@ class AudioStreamHandler(QThread):
 
             if len(mixed_chunk) > 0:
                 self.mixed_buffer.append(mixed_chunk)
+
+                # Real-time speech activity detection for System Tray visual state
+                is_current_speech = self.vad.is_speech_present(mixed_chunk, self.target_sr)
+                if is_current_speech:
+                    self._recent_speech_countdown = self._silence_hangover_sec
+                    if not self._is_speech_active:
+                        self._is_speech_active = True
+                        self.speech_activity_changed.emit(True)
+                else:
+                    if self._recent_speech_countdown > 0:
+                        self._recent_speech_countdown -= 1
+                    else:
+                        if self._is_speech_active:
+                            self._is_speech_active = False
+                            self.speech_activity_changed.emit(False)
 
             # Calculate total buffered sample count
             current_buffer_samples = sum(len(c) for c in self.mixed_buffer)

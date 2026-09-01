@@ -18,16 +18,42 @@ def test_draw_tray_icon(qt_app):
     
     controller = TrayIconController(mock_audio, mock_transcriber)
     
-    # Generate active and paused icons
-    active_icon = controller._draw_tray_icon(is_active=True)
-    paused_icon = controller._draw_tray_icon(is_active=False)
+    # Generate all state icons
+    states = ["sleeping", "active", "summarizing", "paused", True, False]
+    for state in states:
+        icon = controller._draw_tray_icon(state)
+        assert isinstance(icon, QIcon)
+        assert not icon.isNull()
+
+def test_set_status_and_speech_activity_changed(qt_app):
+    mock_audio = MagicMock()
+    mock_audio._is_paused = False
+    mock_audio._is_speech_active = False
+    mock_transcriber = MagicMock()
     
-    # Assert QIcons are correctly generated and valid
-    assert isinstance(active_icon, QIcon)
-    assert not active_icon.isNull()
+    controller = TrayIconController(mock_audio, mock_transcriber)
+    assert controller._current_state == "sleeping"
+    assert "Sleeping" in controller.tray.toolTip()
     
-    assert isinstance(paused_icon, QIcon)
-    assert not paused_icon.isNull()
+    # Simulate speech activity detected
+    controller._on_speech_activity_changed(True)
+    assert controller._current_state == "active"
+    assert "Recording & Transcribing" in controller.tray.toolTip()
+    
+    # Simulate speech ending (falling back to sleep)
+    controller._on_speech_activity_changed(False)
+    assert controller._current_state == "sleeping"
+    assert "Sleeping" in controller.tray.toolTip()
+    
+    # Set summarizing state
+    controller.set_status("summarizing")
+    assert controller._current_state == "summarizing"
+    assert "Generating Daily Summary" in controller.tray.toolTip()
+    
+    # Speech activity change while summarizing should not interrupt summarizing status
+    controller._on_speech_activity_changed(True)
+    assert controller._current_state == "summarizing"
+
 
 def test_on_toggle_listening(qt_app):
     mock_audio = MagicMock()

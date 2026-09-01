@@ -51,3 +51,10 @@ def test_stream_handler_stop_joins_threads():
         mock_wait.assert_called_once()
         mock_mic_thread.join.assert_called_once_with(timeout=1.0)
         mock_spk_thread.join.assert_called_once_with(timeout=1.0)
+
+def test_stream_handler_speech_activity_tracking():
+    handler = AudioStreamHandler()
+    assert handler._is_speech_active is False
+    assert handler._silence_hangover_sec == 3
+    assert hasattr(handler, "speech_activity_changed")
+

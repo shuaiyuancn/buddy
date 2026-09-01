@@ -12,7 +12,8 @@ from src.updater import AutoUpdater
 
 class TrayIconController(QObject):
     """
-    Coordinates System Tray GUI interactions, context menus, and toast notifications.
+    Coordinates System Tray GUI interactions, context menus, toast notifications,
+    and real-time visual status updates (Sleeping, Active, Summarizing, Paused).
     """
     def __init__(self, audio_handler, transcriber_service, updater: AutoUpdater = None):
         super().__init__()
@@ -24,11 +25,19 @@ class TrayIconController(QObject):
         # Create main System Tray instance
         self.tray = QSystemTrayIcon(self)
         
-        # Draw and apply initial active icon
-        self.active_icon = self._draw_tray_icon(is_active=True)
-        self.paused_icon = self._draw_tray_icon(is_active=False)
-        self.tray.setIcon(self.active_icon)
-        self.tray.setToolTip("Buddy - Listening...")
+        # Pre-render state icons
+        self.icons = {
+            "sleeping": self._draw_tray_icon("sleeping"),
+            "active": self._draw_tray_icon("active"),
+            "summarizing": self._draw_tray_icon("summarizing"),
+            "paused": self._draw_tray_icon("paused"),
+        }
+        # Backward compatibility properties for tests
+        self.active_icon = self.icons["active"]
+        self.paused_icon = self.icons["paused"]
+
+        self._current_state = ""
+        self.set_status("sleeping")
 
         # Setup context menu
         self.menu = QMenu()
@@ -39,6 +48,9 @@ class TrayIconController(QObject):
         self.audio_handler.warning_logged.connect(self.show_warning_notification)
         # Connect audio chunk ready signal to our transcription service
         self.audio_handler.chunk_ready.connect(self.on_audio_chunk_ready)
+        # Connect real-time speech activity updates to tray icon states
+        if hasattr(self.audio_handler, "speech_activity_changed"):
+            self.audio_handler.speech_activity_changed.connect(self._on_speech_activity_changed)
 
         # Connect Auto-Updater signals
         self.updater.update_available.connect(self._on_update_available)
@@ -60,38 +72,108 @@ class TrayIconController(QObject):
             5000
         )
 
-    def _draw_tray_icon(self, is_active: bool) -> QIcon:
+    def set_status(self, state: str):
         """
-        Dynamically renders an elegant tray icon programmatically, avoiding static assets.
+        Updates the tray icon and tooltip based on operational status.
+        Supported states: 'sleeping', 'active', 'summarizing', 'paused'.
         """
+        if getattr(self.audio_handler, "_is_paused", False) and state != "paused":
+            state = "paused"
+
+        if self._current_state == state:
+            return
+
+        self._current_state = state
+        icon = self.icons.get(state, self.icons["sleeping"])
+        self.tray.setIcon(icon)
+
+        tooltips = {
+            "sleeping": "Buddy - Sleeping (Waiting for audio)",
+            "active": "Buddy - Recording & Transcribing",
+            "summarizing": "Buddy - Generating Daily Summary...",
+            "paused": "Buddy - Paused",
+        }
+        self.tray.setToolTip(tooltips.get(state, "Buddy"))
+
+    @Slot(bool)
+    def _on_speech_activity_changed(self, is_active: bool):
+        """
+        Switches between sleeping and active recording states based on real-time audio detection.
+        """
+        if self._current_state == "summarizing" or getattr(self.audio_handler, "_is_paused", False):
+            return
+        self.set_status("active" if is_active else "sleeping")
+
+    def _draw_tray_icon(self, state: str | bool) -> QIcon:
+        """
+        Dynamically renders high-DPI procedural status icons avoiding static image assets.
+        States:
+        - 'sleeping': Muted slate dot with subtle outer ring.
+        - 'active' (or True): Radiant cyan dot with acoustic capture rings.
+        - 'summarizing': Radiant violet dot with golden synthesis arcs.
+        - 'paused' (or False): Muted slate gray dot with dashed boundary.
+        """
+        if isinstance(state, bool):
+            state = "active" if state else "paused"
+
         pixmap = QPixmap(32, 32)
         pixmap.fill(Qt.transparent)
         
         painter = QPainter(pixmap)
         painter.setRenderHint(QPainter.Antialiasing)
         
-        if is_active:
-            # High-end cyan dot
-            color = QColor("#00E5FF")
-            painter.setBrush(color)
+        if state == "active":
+            # Radiant cyan central dot with acoustic capture rings
+            cyan_color = QColor("#00E5FF")
+            painter.setBrush(cyan_color)
             painter.setPen(Qt.NoPen)
-            painter.drawEllipse(8, 8, 16, 16)
+            painter.drawEllipse(9, 9, 14, 14)
             
-            # Subtle external ring representing the microphone/loopback sound capture
+            # Concentric sound capture wave ring
             painter.setBrush(Qt.NoBrush)
-            painter.setPen(QPen(QColor("#00E5FF"), 2, Qt.SolidLine))
+            painter.setPen(QPen(cyan_color, 2, Qt.SolidLine))
             painter.drawEllipse(3, 3, 26, 26)
-        else:
-            # Sleek slate gray dot
-            color = QColor("#78909C")
-            painter.setBrush(color)
+            
+            # Subtle inner aura
+            painter.setPen(QPen(QColor(0, 229, 255, 100), 1, Qt.SolidLine))
+            painter.drawEllipse(6, 6, 20, 20)
+
+        elif state == "summarizing":
+            # Vibrant purple core with golden/amber synthesis arcs
+            purple_color = QColor("#A855F7")
+            amber_color = QColor("#F59E0B")
+            
+            painter.setBrush(purple_color)
+            painter.setPen(Qt.NoPen)
+            painter.drawEllipse(9, 9, 14, 14)
+            
+            # Golden synthesis arcs
+            painter.setBrush(Qt.NoBrush)
+            painter.setPen(QPen(amber_color, 2, Qt.SolidLine))
+            painter.drawArc(3, 3, 26, 26, 30 * 16, 120 * 16)
+            painter.drawArc(3, 3, 26, 26, 210 * 16, 120 * 16)
+
+        elif state == "paused":
+            # Slate gray dot with muted dashed ring
+            gray_color = QColor("#94A3B8")
+            painter.setBrush(gray_color)
+            painter.setPen(Qt.NoPen)
+            painter.drawEllipse(11, 11, 10, 10)
+            
+            painter.setBrush(Qt.NoBrush)
+            painter.setPen(QPen(gray_color, 1.5, Qt.DashLine))
+            painter.drawEllipse(4, 4, 24, 24)
+
+        else:  # "sleeping" / default
+            # Soft slate/indigo standby dot with muted sleep ring
+            slate_color = QColor("#64748B")
+            painter.setBrush(slate_color)
             painter.setPen(Qt.NoPen)
             painter.drawEllipse(10, 10, 12, 12)
             
-            # Muted external dashed ring
             painter.setBrush(Qt.NoBrush)
-            painter.setPen(QPen(QColor("#78909C"), 1, Qt.DashLine))
-            painter.drawEllipse(5, 5, 22, 22)
+            painter.setPen(QPen(QColor("#475569"), 1.5, Qt.DotLine))
+            painter.drawEllipse(4, 4, 24, 24)
             
         painter.end()
         return QIcon(pixmap)
@@ -131,14 +213,12 @@ class TrayIconController(QObject):
         """
         if self.audio_handler._is_paused:
             self.audio_handler.resume()
-            self.tray.setIcon(self.active_icon)
-            self.tray.setToolTip("Buddy - Listening...")
+            self.set_status("active" if getattr(self.audio_handler, "_is_speech_active", False) else "sleeping")
             self.toggle_action.setText("Pause Listening")
             self.tray.showMessage("Buddy Active", "Listening resumed.", QSystemTrayIcon.MessageIcon.Information, 2000)
         else:
             self.audio_handler.pause()
-            self.tray.setIcon(self.paused_icon)
-            self.tray.setToolTip("Buddy - Paused")
+            self.set_status("paused")
             self.toggle_action.setText("Resume Listening")
             self.tray.showMessage("Buddy Paused", "Listening suspended.", QSystemTrayIcon.MessageIcon.Information, 2000)
 
@@ -167,14 +247,12 @@ class TrayIconController(QObject):
         """
         Gathers raw logs and compiles the final summary using the worker thread pool.
         """
-        self.tray.setToolTip("Buddy - Compiling Summary...")
+        self.set_status("summarizing")
         self.tray.showMessage("Buddy - Processing", "Compiling your daily summary. Please wait...", QSystemTrayIcon.MessageIcon.Information, 3000)
         
         def process():
             try:
                 summary_text = self.transcriber.compile_daily_summary()
-                self.tray.setToolTip("Buddy - Listening...")
-                
                 if "Error" in summary_text or "No transcript logs" in summary_text:
                     self.tray.showMessage("Buddy - Summary Failed", summary_text, QSystemTrayIcon.MessageIcon.Warning, 5000)
                 else:
@@ -187,8 +265,12 @@ class TrayIconController(QObject):
                     # Open summaries folder in Explorer
                     self.on_open_summaries_folder()
             except Exception as e:
-                self.tray.setToolTip("Buddy - Listening...")
                 self.tray.showMessage("Buddy - Summary Error", str(e), QSystemTrayIcon.MessageIcon.Warning, 5000)
+            finally:
+                if getattr(self.audio_handler, "_is_paused", False):
+                    self.set_status("paused")
+                else:
+                    self.set_status("active" if getattr(self.audio_handler, "_is_speech_active", False) else "sleeping")
 
         if hasattr(self, "executor") and self.executor is not None:
             self.executor.submit(process)
