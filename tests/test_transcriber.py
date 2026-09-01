@@ -82,7 +82,9 @@ def test_transcribe_chunk_gemini_interaction(temp_transcript_dir):
     mock_client.models.generate_content.assert_called_once()
     call_kwargs = mock_client.models.generate_content.call_args[1]
     assert call_kwargs["model"] == "gemini-2.5-flash"
-    assert "Transcribe the following" in call_kwargs["contents"][0]
+    assert "Channel 1" in call_kwargs["contents"][0]
+    assert "Me:" in call_kwargs["contents"][0]
+    assert "Others:" in call_kwargs["contents"][0]
 
     # Verify results are correctly logged to our appender
     assert result == "Hello, this is a simulated transcription."

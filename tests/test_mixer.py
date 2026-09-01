@@ -31,37 +31,54 @@ def test_mix_and_standardize():
     # 1 second of speaker audio (all 0.4 values)
     spk_samples = np.full(spk_sr, 0.4, dtype=np.float32)
     
-    mixed = AudioMixer.mix_and_standardize(
+    # Default: Dual-Channel Stereo
+    stereo_mixed = AudioMixer.mix_and_standardize(
         mic_samples=mic_samples, mic_sr=mic_sr,
         speaker_samples=spk_samples, speaker_sr=spk_sr,
-        target_sr=16000
+        target_sr=16000, stereo=True
     )
     
-    # Assert: Output length should be exactly 16000 samples (1 second at 16kHz)
-    assert len(mixed) == 16000
-    assert mixed.dtype == np.float32
-    
-    # Assert: No clipping occurred (amplitude should be safely normalized by 0.5 factors)
-    # mic (0.8 * 0.5) + speaker (0.4 * 0.5) = 0.4 + 0.2 = 0.6
-    assert np.allclose(mixed, 0.6, atol=1e-5)
+    # Assert: Output shape should be (16000, 2)
+    assert stereo_mixed.shape == (16000, 2)
+    assert stereo_mixed.dtype == np.float32
+    assert np.allclose(stereo_mixed[:, 0], 0.8, atol=1e-5)  # Channel 0: Mic (Me)
+    assert np.allclose(stereo_mixed[:, 1], 0.4, atol=1e-5)  # Channel 1: Speaker (Others)
+
+    # Blended Mono
+    mono_mixed = AudioMixer.mix_and_standardize(
+        mic_samples=mic_samples, mic_sr=mic_sr,
+        speaker_samples=spk_samples, speaker_sr=spk_sr,
+        target_sr=16000, stereo=False
+    )
+    assert len(mono_mixed) == 16000
+    assert mono_mixed.dtype == np.float32
+    assert np.allclose(mono_mixed, 0.6, atol=1e-5)
 
 def test_convert_to_wav_bytes():
-    # 1 second of constant amplitude at 16kHz
+    # 1 second of constant amplitude at 16kHz (Mono)
     sample_rate = 16000
-    samples = np.full(sample_rate, 0.5, dtype=np.float32)
+    mono_samples = np.full(sample_rate, 0.5, dtype=np.float32)
     
-    wav_bytes = AudioMixer.convert_to_wav_bytes(samples, sample_rate)
+    mono_wav = AudioMixer.convert_to_wav_bytes(mono_samples, sample_rate)
+    assert isinstance(mono_wav, bytes)
+    assert len(mono_wav) > 0
     
-    assert isinstance(wav_bytes, bytes)
-    assert len(wav_bytes) > 0
-    
-    # Parse WAV bytes using standard wave module to verify structural formatting
-    wav_io = io.BytesIO(wav_bytes)
-    with wave.open(wav_io, "rb") as wav_file:
+    with wave.open(io.BytesIO(mono_wav), "rb") as wav_file:
         assert wav_file.getnchannels() == 1  # Mono
         assert wav_file.getsampwidth() == 2  # 16-bit PCM (2 bytes)
         assert wav_file.getframerate() == sample_rate
-        assert wav_file.getnframes() == sample_rate  # Exactly 16000 frames
+        assert wav_file.getnframes() == sample_rate
+
+    # 1 second of Stereo
+    stereo_samples = np.column_stack((np.full(sample_rate, 0.5), np.full(sample_rate, -0.5))).astype(np.float32)
+    stereo_wav = AudioMixer.convert_to_wav_bytes(stereo_samples, sample_rate)
+    assert isinstance(stereo_wav, bytes)
+
+    with wave.open(io.BytesIO(stereo_wav), "rb") as wav_file:
+        assert wav_file.getnchannels() == 2  # Stereo
+        assert wav_file.getsampwidth() == 2
+        assert wav_file.getframerate() == sample_rate
+        assert wav_file.getnframes() == sample_rate
 
 def test_anti_aliased_downsampling():
     orig_sr = 48000

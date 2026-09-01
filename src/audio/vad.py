@@ -62,7 +62,11 @@ class VoiceActivityDetector:
             return False
 
         if samples.ndim > 1:
-            samples = samples.mean(axis=1)
+            # Evaluate each channel independently; speech on either channel triggers detection
+            for ch in range(samples.shape[1]):
+                if self.is_speech_present(samples[:, ch], sample_rate):
+                    return True
+            return False
 
         frame_size = int(sample_rate * (self.frame_duration_ms / 1000.0))
         if frame_size <= 0 or len(samples) < frame_size:

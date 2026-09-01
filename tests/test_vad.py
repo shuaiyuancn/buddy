@@ -45,3 +45,28 @@ def test_vad_empty_array():
     vad = VoiceActivityDetector()
     assert vad.calculate_rms_db(np.array([], dtype=np.float32)) == -100.0
     assert not vad.is_speech_present(np.array([], dtype=np.float32))
+
+def test_vad_multi_channel_stereo():
+    vad = VoiceActivityDetector(energy_threshold_db=-45.0, min_speech_duration_sec=0.5)
+    sr = 16000
+    total_samples = sr * 3
+
+    # Generate 1s tone
+    t = np.linspace(0, 1.0, sr, endpoint=False)
+    tone = (0.2 * np.sin(2 * np.pi * 400 * t)).astype(np.float32)
+
+    # 1. Speech in Channel 0 (Mic / Me), Channel 1 (Speaker) is completely silent zeros
+    ch0 = np.zeros(total_samples, dtype=np.float32)
+    ch0[sr:sr + len(tone)] = tone
+    ch1 = np.zeros(total_samples, dtype=np.float32)
+    stereo_audio_1 = np.column_stack((ch0, ch1))
+
+    assert vad.is_speech_present(stereo_audio_1, sample_rate=sr) is True
+
+    # 2. Speech in Channel 1 (Speaker / Others), Channel 0 is completely silent zeros
+    stereo_audio_2 = np.column_stack((ch1, ch0))
+    assert vad.is_speech_present(stereo_audio_2, sample_rate=sr) is True
+
+    # 3. Both channels silent
+    stereo_silent = np.column_stack((ch1, ch1))
+    assert vad.is_speech_present(stereo_silent, sample_rate=sr) is False

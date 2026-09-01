@@ -1,4 +1,6 @@
 import os
+import io
+import wave
 import threading
 from datetime import datetime
 from pathlib import Path
@@ -108,16 +110,21 @@ class TranscriberService:
 
     def is_wav_silent(self, wav_bytes: bytes) -> bool:
         """
-        Evaluates whether a WAV audio buffer contains meaningful human speech.
+        Evaluates whether a WAV audio buffer (Mono or Stereo) contains meaningful human speech.
         Returns True if the buffer is silent/empty, False if speech is detected.
         """
         if not wav_bytes or len(wav_bytes) <= 44:
             return False
         try:
-            pcm_data = np.frombuffer(wav_bytes[44:], dtype=np.int16).astype(np.float32) / 32768.0
-            if len(pcm_data) < 1600:  # less than 100ms
-                return False
-            return not self.vad.is_speech_present(pcm_data, sample_rate=16000)
+            with wave.open(io.BytesIO(wav_bytes), "rb") as wf:
+                n_channels = wf.getnchannels()
+                frames = wf.readframes(wf.getnframes())
+                pcm_data = np.frombuffer(frames, dtype=np.int16).astype(np.float32) / 32768.0
+                if n_channels > 1:
+                    pcm_data = pcm_data.reshape(-1, n_channels)
+                if len(pcm_data) < 1600:  # less than 100ms
+                    return False
+                return not self.vad.is_speech_present(pcm_data, sample_rate=16000)
         except Exception:
             return False
 
@@ -138,7 +145,7 @@ class TranscriberService:
 
     def _transcribe_gemini(self, wav_bytes: bytes) -> str:
         """
-        Sends raw WAV audio bytes to Gemini 2.5 Flash for verbatim speech-to-text.
+        Sends dual-channel WAV audio bytes to Gemini 2.5 Flash for speaker-attributed verbatim speech-to-text.
         """
         if not self.api_key:
             return "[Error: GEMINI_API_KEY environment variable is missing]"
@@ -151,8 +158,16 @@ class TranscriberService:
 
         try:
             prompt = (
-                "Transcribe the following audio stream. Output ONLY the verbatim speech content. "
-                "Do not include any conversational introductions, meta-commentary, or structural headings."
+                "You are an expert speech-to-text transcriber for a dual-channel audio stream:\n"
+                "- Channel 1 (Left Channel): 'Me' (the local user's microphone)\n"
+                "- Channel 2 (Right Channel): 'Others' (remote meeting participants / system audio)\n\n"
+                "INSTRUCTIONS:\n"
+                "1. Transcribe the dialogue in strict chronological order.\n"
+                "2. Attribute each spoken phrase with the appropriate speaker label based on the audio channel:\n"
+                "   - 'Me: <spoken content>' for speech originating on Channel 1 (Left).\n"
+                "   - 'Others: <spoken content>' for speech originating on Channel 2 (Right).\n"
+                "3. If only one party is speaking, output only their attributed dialogue.\n"
+                "4. Output ONLY the attributed verbatim dialogue. Do not include introductory notes, timestamps, structural headers, or conversational commentary."
             )
             
             response = self.client.models.generate_content(
@@ -253,12 +268,13 @@ class TranscriberService:
         try:
             summary_prompt = (
                 "You are Buddy, a world-class executive chief of staff and personal assistant.\n"
-                f"Analyze the following raw timeline transcript representing a user's day ({date_str}).\n\n"
+                f"Analyze the following raw timeline transcript representing a user's day ({date_str}).\n"
+                "Note: Transcripts contain speaker attributions ('Me:' for the user and 'Others:' for meeting participants / interlocutors).\n\n"
                 "YOUR INSTRUCTIONS:\n"
                 "1. Read the transcript from start to finish.\n"
                 "2. Detect transitions, verbal meeting demarcations (e.g. \"Buddy, starting the meeting on X\"), and subject changes to divide the day into logical, chronological meeting segments.\n"
                 "3. Compile a professional executive overview.\n"
-                "4. Extract an 'Action Items & Task Matrix' table detailing tasks, priority, and any mentioned owners.\n"
+                "4. Extract an 'Action Items & Task Matrix' table detailing tasks, priority, and clear ownership (distinguishing commitments made by 'Me' vs assigned to or requested by 'Others').\n"
                 "5. Compile an 'Ideas Vault' isolating spontaneous thoughts, brainstorms, or feedback stated in the stream.\n"
                 "6. Format the output in a stunning, readable Markdown document.\n\n"
                 f"--- RAW DAILY TRANSCRIPT LOGS ---\n{raw_log_content}"

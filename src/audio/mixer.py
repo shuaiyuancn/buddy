@@ -68,17 +68,20 @@ class AudioMixer:
     @staticmethod
     def mix_and_standardize(mic_samples: np.ndarray, mic_sr: int, 
                             speaker_samples: np.ndarray, speaker_sr: int, 
-                            target_sr: int = 16000) -> np.ndarray:
+                            target_sr: int = 16000,
+                            stereo: bool = True) -> np.ndarray:
         """
-        Standardizes both streams to target_sr and mixes them at normalized amplitude.
+        Standardizes both streams to target_sr and aligns them into a dual-channel stereo stream
+        (Channel 1 = Mic / 'Me', Channel 2 = Speaker Loopback / 'Others') or blended mono stream.
         Args:
             mic_samples (np.ndarray): Microphone float32 samples.
             mic_sr (int): Mic hardware sample rate.
             speaker_samples (np.ndarray): Speaker loopback float32 samples.
             speaker_sr (int): Speaker hardware sample rate.
             target_sr (int): Standard output rate.
+            stereo (bool): If True, returns 2D array of shape (N, 2); if False, blends into 1D mono.
         Returns:
-            np.ndarray: Mixed single-channel float32 array.
+            np.ndarray: Dual-channel (N, 2) or single-channel float32 array.
         """
         # 1. Ensure inputs are flat 1D arrays (convert stereo/multichannel to mono if needed)
         if mic_samples.ndim > 1:
@@ -93,31 +96,38 @@ class AudioMixer:
         # 3. Align buffer lengths
         max_len = max(len(resampled_mic), len(resampled_spk))
         if max_len == 0:
-            return np.array([], dtype=np.float32)
+            return np.zeros((0, 2), dtype=np.float32) if stereo else np.array([], dtype=np.float32)
 
         padded_mic = np.pad(resampled_mic, (0, max_len - len(resampled_mic)))
         padded_spk = np.pad(resampled_spk, (0, max_len - len(resampled_spk)))
 
-        # 4. Mix and normalize (scale by 0.5 to prevent overflow/clipping)
-        mixed = (padded_mic * 0.5) + (padded_spk * 0.5)
-        return mixed
+        if stereo:
+            # Channel 0 (Left) = Mic ('Me'), Channel 1 (Right) = Speaker Loopback ('Others')
+            return np.column_stack((padded_mic, padded_spk)).astype(np.float32)
+        else:
+            # Mix and normalize (scale by 0.5 to prevent overflow/clipping)
+            mixed = (padded_mic * 0.5) + (padded_spk * 0.5)
+            return mixed.astype(np.float32)
 
     @staticmethod
     def convert_to_wav_bytes(samples: np.ndarray, sample_rate: int = 16000) -> bytes:
         """
-        Converts a normalized float32 numpy array into standard 16-bit PCM WAV bytes.
+        Converts a normalized float32 numpy array (1D Mono or 2D Stereo) into standard 16-bit PCM WAV bytes.
         """
         if len(samples) == 0:
             return b""
         
+        # Determine channel count
+        num_channels = 2 if (samples.ndim == 2 and samples.shape[1] == 2) else 1
+
         # Convert float32 range [-1.0, 1.0] to signed 16-bit PCM range [-32768, 32767]
         quantized = np.clip(samples, -1.0, 1.0) * 32767.0
-        pcm16_samples = quantized.astype(np.int16)
+        pcm16_samples = np.ascontiguousarray(quantized).astype(np.int16)
 
         # Write to in-memory bytes buffer formatted as a standard RIFF WAV file
         wav_buffer = io.BytesIO()
         with wave.open(wav_buffer, "wb") as wav_file:
-            wav_file.setnchannels(1)      # Mono
+            wav_file.setnchannels(num_channels)
             wav_file.setsampwidth(2)      # 2 bytes per sample (16-bit)
             wav_file.setframerate(sample_rate)
             wav_file.writeframes(pcm16_samples.tobytes())
