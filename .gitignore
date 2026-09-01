@@ -29,7 +29,6 @@ MANIFEST
 # PyInstaller
 #  Usually these files are written by a python script, etc.
 *.manifest
-*.spec
 
 # Installer logs
 pip-log.txt
