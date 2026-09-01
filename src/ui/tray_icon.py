@@ -1,6 +1,7 @@
 import os
 import sys
 import threading
+import concurrent.futures
 import webbrowser
 from pathlib import Path
 from PySide6.QtWidgets import QSystemTrayIcon, QMenu, QMessageBox
@@ -16,6 +17,7 @@ class TrayIconController(QObject):
         super().__init__()
         self.audio_handler = audio_handler
         self.transcriber = transcriber_service
+        self.executor = concurrent.futures.ThreadPoolExecutor(max_workers=2, thread_name_prefix="buddy_worker")
 
         # Create main System Tray instance
         self.tray = QSystemTrayIcon(self)
@@ -125,43 +127,56 @@ class TrayIconController(QObject):
             self.toggle_action.setText("Resume Listening")
             self.tray.showMessage("Buddy Paused", "Listening suspended.", QSystemTrayIcon.MessageIcon.Information, 2000)
 
+    def _safe_transcribe(self, wav_bytes: bytes):
+        """
+        Executes transcription in worker pool and surfaces warnings if errors occur.
+        """
+        try:
+            result = self.transcriber.transcribe_chunk(wav_bytes)
+            if result and result.startswith("[Error:"):
+                self.audio_handler.warning_logged.emit(result)
+        except Exception as e:
+            self.audio_handler.warning_logged.emit(f"Transcription Error: {str(e)}")
+
     @Slot()
     def on_audio_chunk_ready(self, wav_bytes: bytes):
         """
         Triggered asynchronously whenever a 60-second sliding buffer completes.
-        Dispatches transcription work in the background.
+        Dispatches transcription work safely to the thread pool.
         """
-        # Run transcription inside a daemon thread to prevent UI locking during API requests
-        t = threading.Thread(target=self.transcriber.transcribe_chunk, args=(wav_bytes,), daemon=True)
-        t.start()
+        if hasattr(self, "executor") and self.executor is not None:
+            self.executor.submit(self._safe_transcribe, wav_bytes)
 
     @Slot()
     def on_generate_summary(self):
         """
-        Gathers raw logs and compiles the final summary.
+        Gathers raw logs and compiles the final summary using the worker thread pool.
         """
         self.tray.setToolTip("Buddy - Compiling Summary...")
         self.tray.showMessage("Buddy - Processing", "Compiling your daily summary. Please wait...", QSystemTrayIcon.MessageIcon.Information, 3000)
         
-        # Offload API generation to prevent system tray menu hanging
         def process():
-            summary_text = self.transcriber.compile_daily_summary()
-            self.tray.setToolTip("Buddy - Listening...")
-            
-            if "Error" in summary_text or "No transcript logs" in summary_text:
-                self.tray.showMessage("Buddy - Summary Failed", summary_text, QSystemTrayIcon.MessageIcon.Warning, 5000)
-            else:
-                self.tray.showMessage(
-                    "Buddy - Summary Completed",
-                    "Your daily summary markdown has been saved successfully!",
-                    QSystemTrayIcon.MessageIcon.Information,
-                    5000
-                )
-                # Open summaries folder in Explorer
-                self.on_open_summaries_folder()
+            try:
+                summary_text = self.transcriber.compile_daily_summary()
+                self.tray.setToolTip("Buddy - Listening...")
+                
+                if "Error" in summary_text or "No transcript logs" in summary_text:
+                    self.tray.showMessage("Buddy - Summary Failed", summary_text, QSystemTrayIcon.MessageIcon.Warning, 5000)
+                else:
+                    self.tray.showMessage(
+                        "Buddy - Summary Completed",
+                        "Your daily summary markdown has been saved successfully!",
+                        QSystemTrayIcon.MessageIcon.Information,
+                        5000
+                    )
+                    # Open summaries folder in Explorer
+                    self.on_open_summaries_folder()
+            except Exception as e:
+                self.tray.setToolTip("Buddy - Listening...")
+                self.tray.showMessage("Buddy - Summary Error", str(e), QSystemTrayIcon.MessageIcon.Warning, 5000)
 
-        t = threading.Thread(target=process, daemon=True)
-        t.start()
+        if hasattr(self, "executor") and self.executor is not None:
+            self.executor.submit(process)
 
     @Slot()
     def on_open_transcripts_folder(self):
@@ -194,8 +209,10 @@ class TrayIconController(QObject):
     @Slot()
     def on_exit(self):
         """
-        Cleanly stops background streams and exits the application process.
+        Cleanly stops background streams, flushes worker threads, and exits the application.
         """
         self.audio_handler.stop()
         self.tray.hide()
+        if hasattr(self, "executor") and self.executor is not None:
+            self.executor.shutdown(wait=True, cancel_futures=False)
         sys.exit(0)

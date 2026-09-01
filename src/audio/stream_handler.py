@@ -100,10 +100,14 @@ class AudioStreamHandler(QThread):
 
     def stop(self):
         """
-        Shuts down background capturing loops cleanly.
+        Shuts down background capturing loops cleanly and joins worker threads.
         """
         self._is_running = False
         self.wait()  # Wait for QThread event loop to end
+        if self.mic_thread and self.mic_thread.is_alive():
+            self.mic_thread.join(timeout=1.0)
+        if self.speaker_thread and self.speaker_thread.is_alive():
+            self.speaker_thread.join(timeout=1.0)
 
     def pause(self):
         """
@@ -125,66 +129,61 @@ class AudioStreamHandler(QThread):
 
     def _record_microphone(self):
         """
-        Blocking loop for microphone recording. Runs in a dedicated native thread.
+        Blocking loop for microphone recording with automatic reconnection on device disconnects.
         """
         samplerate = 16000  # Record natively at target 16kHz mono
         block_duration = 1.0  # Fetch 1-second chunks
         block_size = int(samplerate * block_duration)
+        retry_delay = 2.0
 
-        try:
-            with sd.InputStream(samplerate=samplerate, channels=1, dtype='float32') as stream:
-                while self._is_running:
-                    if self._is_paused:
-                        time.sleep(0.2)
-                        continue
-                    
-                    data, overflow = stream.read(block_size)
-                    self.mic_queue.put(data.flatten())
-        except Exception as e:
-            self.warning_logged.emit(f"Microphone Capture Error: {str(e)}")
-            # Write silence to queue as a fallback to prevent pipeline starvation
-            while self._is_running:
-                if not self._is_paused:
-                    self.mic_queue.put(np.zeros(block_size, dtype=np.float32))
-                time.sleep(1.0)
+        while self._is_running:
+            try:
+                with sd.InputStream(samplerate=samplerate, channels=1, dtype='float32') as stream:
+                    while self._is_running:
+                        if self._is_paused:
+                            time.sleep(0.2)
+                            continue
+                        
+                        data, overflow = stream.read(block_size)
+                        self.mic_queue.put(data.flatten())
+            except Exception as e:
+                self.warning_logged.emit(f"Microphone Capture Error: {str(e)}")
+                # Provide silence fallback while backing off before reconnection attempt
+                elapsed = 0.0
+                while self._is_running and elapsed < retry_delay:
+                    if not self._is_paused:
+                        self.mic_queue.put(np.zeros(block_size, dtype=np.float32))
+                    time.sleep(1.0)
+                    elapsed += 1.0
 
     def _record_speaker_loopback(self):
         """
-        Blocking loop for speaker loopback (WASAPI). Runs in a dedicated native thread.
+        Blocking loop for speaker loopback (WASAPI) with automatic reconnection.
         """
-        # Fetch default speaker loopback device
-        try:
-            speaker = sc.default_speaker()
-            loopback = sc.get_microphone(id=str(speaker.name), include_loopback=True)
-        except Exception as e:
-            self.warning_logged.emit(f"Failed to find default speaker for WASAPI loopback: {str(e)}")
-            # Fallback to pure microphone (post silence to queue to prevent blocking)
-            while self._is_running:
-                if not self._is_paused:
-                    self.speaker_queue.put(np.zeros(48000, dtype=np.float32))
-                time.sleep(1.0)
-            return
-
         samplerate = 48000  # Default loopback rate
         block_size = int(samplerate * 1.0)  # 1-second blocks
+        retry_delay = 2.0
 
-        try:
-            with loopback.recorder(samplerate=samplerate) as recorder:
-                while self._is_running:
-                    if self._is_paused:
-                        time.sleep(0.2)
-                        continue
-                    
-                    # Record loopback speaker audio frames
-                    data = recorder.record(numframes=block_size)
-                    # Soundcard outputs multi-channel float arrays. Flatten to mono float32
-                    if data.ndim > 1:
-                        data = data.mean(axis=1)
-                    self.speaker_queue.put(data.astype(np.float32))
-        except Exception as e:
-            self.warning_logged.emit(f"WASAPI Speaker Capture Error: {str(e)}")
-            # Write silence as fallback
-            while self._is_running:
-                if not self._is_paused:
-                    self.speaker_queue.put(np.zeros(block_size, dtype=np.float32))
-                time.sleep(1.0)
+        while self._is_running:
+            try:
+                speaker = sc.default_speaker()
+                loopback = sc.get_microphone(id=str(speaker.name), include_loopback=True)
+                with loopback.recorder(samplerate=samplerate) as recorder:
+                    while self._is_running:
+                        if self._is_paused:
+                            time.sleep(0.2)
+                            continue
+                        
+                        data = recorder.record(numframes=block_size)
+                        if data.ndim > 1:
+                            data = data.mean(axis=1)
+                        self.speaker_queue.put(data.astype(np.float32))
+            except Exception as e:
+                self.warning_logged.emit(f"WASAPI Speaker Capture Error: {str(e)}")
+                # Provide silence fallback while backing off before reconnection attempt
+                elapsed = 0.0
+                while self._is_running and elapsed < retry_delay:
+                    if not self._is_paused:
+                        self.speaker_queue.put(np.zeros(block_size, dtype=np.float32))
+                    time.sleep(1.0)
+                    elapsed += 1.0
