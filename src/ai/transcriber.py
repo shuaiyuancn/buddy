@@ -3,7 +3,8 @@ import threading
 from datetime import datetime
 from pathlib import Path
 import numpy as np
-import google.generativeai as genai
+from google import genai
+from google.genai import types
 from src.config import TRANSCRIPTS_DIR, SUMMARIES_DIR
 from src.audio.vad import VoiceActivityDetector
 
@@ -66,8 +67,12 @@ class TranscriberService:
     """
     def __init__(self, api_key: str = None, config_dict: dict = None):
         self.api_key = api_key or os.environ.get("GEMINI_API_KEY")
+        self.client = None
         if self.api_key:
-            genai.configure(api_key=self.api_key)
+            try:
+                self.client = genai.Client(api_key=self.api_key)
+            except Exception as e:
+                print(f"[Warning] Failed to initialize Gemini Client: {e}")
             
         self.config = config_dict or {}
         self.stt_provider = self.config.get("STT_PROVIDER", "gemini").lower()
@@ -138,23 +143,31 @@ class TranscriberService:
         if not self.api_key:
             return "[Error: GEMINI_API_KEY environment variable is missing]"
 
-        try:
-            audio_part = {
-                "mime_type": "audio/wav",
-                "data": wav_bytes
-            }
+        if not self.client:
+            try:
+                self.client = genai.Client(api_key=self.api_key)
+            except Exception as e:
+                return f"[Error: Failed to initialize Gemini Client: {str(e)}]"
 
-            model = genai.GenerativeModel("gemini-2.5-flash")
-            
+        try:
             prompt = (
                 "Transcribe the following audio stream. Output ONLY the verbatim speech content. "
                 "Do not include any conversational introductions, meta-commentary, or structural headings."
             )
             
-            response = model.generate_content([prompt, audio_part])
+            response = self.client.models.generate_content(
+                model="gemini-2.5-flash",
+                contents=[
+                    prompt,
+                    types.Part.from_bytes(
+                        data=wav_bytes,
+                        mime_type="audio/wav"
+                    )
+                ]
+            )
             
             try:
-                transcribed_text = response.text.strip()
+                transcribed_text = response.text.strip() if response.text else ""
             except Exception:
                 transcribed_text = ""
             
@@ -224,6 +237,12 @@ class TranscriberService:
         if not self.api_key:
             return "[Error: GEMINI_API_KEY environment variable is missing]"
 
+        if not self.client:
+            try:
+                self.client = genai.Client(api_key=self.api_key)
+            except Exception as e:
+                return f"[Error: Failed to initialize Gemini Client: {str(e)}]"
+
         if not date_str:
             date_str = datetime.now().strftime("%Y-%m-%d")
 
@@ -232,8 +251,6 @@ class TranscriberService:
             return "No transcript logs available to synthesize for this day."
 
         try:
-            model = genai.GenerativeModel("gemini-2.5-pro")
-            
             summary_prompt = (
                 "You are Buddy, a world-class executive chief of staff and personal assistant.\n"
                 f"Analyze the following raw timeline transcript representing a user's day ({date_str}).\n\n"
@@ -247,8 +264,11 @@ class TranscriberService:
                 f"--- RAW DAILY TRANSCRIPT LOGS ---\n{raw_log_content}"
             )
 
-            response = model.generate_content(summary_prompt)
-            summary_md = response.text.strip()
+            response = self.client.models.generate_content(
+                model="gemini-2.5-pro",
+                contents=summary_prompt
+            )
+            summary_md = response.text.strip() if response.text else ""
 
             # Save the synthesized report
             summary_path = SUMMARIES_DIR / f"{date_str}_summary.md"

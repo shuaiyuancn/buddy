@@ -106,12 +106,33 @@ def trigger_toast_and_exit(message: str):
     time.sleep(3.0)
     sys.exit(1)
 
+def get_secure_api_key(service_name: str = "Buddy", username: str = "GEMINI_API_KEY") -> str:
+    """
+    Attempts to retrieve the API key from the OS secure Credential Manager/Keyring.
+    """
+    try:
+        import keyring
+        val = keyring.get_password(service_name, username)
+        return val or ""
+    except Exception:
+        return ""
+
+def set_secure_api_key(api_key: str, service_name: str = "Buddy", username: str = "GEMINI_API_KEY") -> bool:
+    """
+    Attempts to store the API key securely into the OS Credential Manager/Keyring.
+    """
+    try:
+        import keyring
+        keyring.set_password(service_name, username, api_key)
+        return True
+    except Exception:
+        return False
+
 def check_api_key_or_toast_and_exit():
     """
     Verifies that the GEMINI_API_KEY is configured.
-    Checks the local configuration file config.json first, and falls back to
-    the environment variable. If missing/empty everywhere, fires a native Windows 
-    Toast notification and exits immediately.
+    Checks config.json first, then environment variables, then the OS secure keyring.
+    If missing/empty everywhere, fires a native Windows Toast notification and exits immediately.
     
     If STT_PROVIDER is "gcp", it also verifies GCP_PROJECT_ID is present, and
     that either GCP_SERVICE_ACCOUNT_KEY_PATH is specified or GOOGLE_APPLICATION_CREDENTIALS
@@ -125,11 +146,15 @@ def check_api_key_or_toast_and_exit():
     if not api_key:
         api_key = os.environ.get("GEMINI_API_KEY", "")
 
+    # 3. Fallback to secure OS keyring
+    if not api_key:
+        api_key = get_secure_api_key()
+
     # Always verify GEMINI_API_KEY (needed for summaries)
     if not api_key:
         trigger_toast_and_exit(f"GEMINI_API_KEY is missing! Enter your key in {CONFIG_FILE} and restart.")
 
-    # 3. If STT_PROVIDER is gcp, perform additional checks
+    # 4. If STT_PROVIDER is gcp, perform additional checks
     stt_provider = config.get("STT_PROVIDER", "gemini").lower()
     if stt_provider == "gcp":
         project_id = config.get("GCP_PROJECT_ID", "") or os.environ.get("GOOGLE_CLOUD_PROJECT", "")

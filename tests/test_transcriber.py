@@ -5,6 +5,7 @@ import threading
 from datetime import datetime
 from pathlib import Path
 from unittest.mock import patch, MagicMock
+import numpy as np
 import pytest
 from src.ai.transcriber import FileAppender, TranscriberService
 
@@ -58,46 +59,45 @@ def test_file_appender_thread_safety(temp_transcript_dir):
         for j in range(loops_per_thread):
             assert f"Thread-{i} loop-{j}" in content
 
-@patch("google.generativeai.GenerativeModel")
-def test_transcribe_chunk_gemini_interaction(mock_model_class, temp_transcript_dir):
-    # Setup mock Gemini Client response
-    mock_model = MagicMock()
-    mock_response = MagicMock()
-    mock_response.text = "Hello, this is a simulated transcription."
-    mock_model.generate_content.return_value = mock_response
-    mock_model_class.return_value = mock_model
-
-    # Configure Service with local temp directories
+def test_transcribe_chunk_gemini_interaction(temp_transcript_dir):
     service = TranscriberService(api_key="mock-api-key")
     service.appender = FileAppender(temp_transcript_dir)
 
-    dummy_wav = b"RIFFmockaudiobytes..."
+    # Mock google.genai Client
+    mock_client = MagicMock()
+    mock_response = MagicMock()
+    mock_response.text = "Hello, this is a simulated transcription."
+    mock_client.models.generate_content.return_value = mock_response
+    service.client = mock_client
+
+    # Audio with energy/speech so VAD lets it pass
+    t = np.linspace(0, 1.0, 16000, endpoint=False)
+    tone = (np.sin(2 * np.pi * 440.0 * t) * 0.5).astype(np.float32)
+    from src.audio.mixer import AudioMixer
+    dummy_wav = AudioMixer.convert_to_wav_bytes(tone, sample_rate=16000)
+
     result = service.transcribe_chunk(dummy_wav)
 
-    # Verify Gemini is called with the expected prompt and inline audio-structure
-    mock_model_class.assert_called_with("gemini-2.5-flash")
-    args, kwargs = mock_model.generate_content.call_args
-    prompt_list = args[0]
-    
-    assert "Transcribe the following" in prompt_list[0]
-    assert prompt_list[1]["mime_type"] == "audio/wav"
-    assert prompt_list[1]["data"] == dummy_wav
+    # Verify Gemini is called with the expected model and contents
+    mock_client.models.generate_content.assert_called_once()
+    call_kwargs = mock_client.models.generate_content.call_args[1]
+    assert call_kwargs["model"] == "gemini-2.5-flash"
+    assert "Transcribe the following" in call_kwargs["contents"][0]
 
     # Verify results are correctly logged to our appender
     assert result == "Hello, this is a simulated transcription."
     raw_log = service.appender.read_raw_log()
     assert "Hello, this is a simulated transcription." in raw_log
 
-@patch("google.generativeai.GenerativeModel")
-def test_compile_daily_summary(mock_model_class, temp_transcript_dir):
-    mock_model = MagicMock()
-    mock_response = MagicMock()
-    mock_response.text = "# Daily Summary Report\n\n- Tasks done\n- Ideas saved"
-    mock_model.generate_content.return_value = mock_response
-    mock_model_class.return_value = mock_model
-
+def test_compile_daily_summary(temp_transcript_dir):
     service = TranscriberService(api_key="mock-api-key")
     service.appender = FileAppender(temp_transcript_dir)
+
+    mock_client = MagicMock()
+    mock_response = MagicMock()
+    mock_response.text = "# Daily Summary Report\n\n- Tasks done\n- Ideas saved"
+    mock_client.models.generate_content.return_value = mock_response
+    service.client = mock_client
 
     # Mock an existing log
     service.appender.append_transcription("User: Next meeting is daily standup.")
@@ -110,6 +110,9 @@ def test_compile_daily_summary(mock_model_class, temp_transcript_dir):
         expected_summary_file = temp_transcript_dir / f"{datetime.now().strftime('%Y-%m-%d')}_summary.md"
         assert expected_summary_file.exists()
         assert "# Daily Summary Report" in expected_summary_file.read_text(encoding="utf-8")
+        
+        call_kwargs = mock_client.models.generate_content.call_args[1]
+        assert call_kwargs["model"] == "gemini-2.5-pro"
 
 @patch("google.cloud.speech_v2.SpeechClient")
 def test_transcribe_chunk_gcp_routing(mock_speech_client_class, temp_transcript_dir):

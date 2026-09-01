@@ -102,3 +102,12 @@ def test_check_api_key_missing_everywhere_exits(clean_env):
         
     assert exc_info.value.code == 1
 
+def test_check_api_key_valid_from_keyring(clean_env):
+    src.config.USER_BUDDY_DIR.mkdir(parents=True, exist_ok=True)
+    with open(src.config.CONFIG_FILE, "w", encoding="utf-8") as f:
+        json.dump({"GEMINI_API_KEY": ""}, f)
+
+    with patch("src.config.get_secure_api_key", return_value="keyring-stored-secret-key"):
+        key = check_api_key_or_toast_and_exit()
+        assert key == "keyring-stored-secret-key"
+
