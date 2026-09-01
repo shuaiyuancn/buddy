@@ -161,3 +161,20 @@ def test_transcribe_chunk_gcp_routing(mock_speech_client_class, temp_transcript_
     raw_log = service.appender.read_raw_log()
     assert "This is a high-accuracy Chirp 3 transcription." in raw_log
 
+def test_transcribe_chunk_silence_skipped(temp_transcript_dir):
+    from src.audio.mixer import AudioMixer
+    import numpy as np
+
+    service = TranscriberService(api_key="mock-api-key")
+    service.appender = FileAppender(temp_transcript_dir)
+
+    # 5 seconds of pure zero silence packed as genuine WAV
+    silent_samples = np.zeros(16000 * 5, dtype=np.float32)
+    silent_wav = AudioMixer.convert_to_wav_bytes(silent_samples, sample_rate=16000)
+
+    # Should detect silence and return empty string without calling APIs
+    result = service.transcribe_chunk(silent_wav)
+    assert result == ""
+    # Raw log should remain empty
+    assert service.appender.read_raw_log() == ""
+

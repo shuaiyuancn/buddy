@@ -6,6 +6,7 @@ import soundcard as sc
 import sounddevice as sd
 from PySide6.QtCore import QThread, Signal
 from src.audio.mixer import AudioMixer
+from src.audio.vad import VoiceActivityDetector
 
 class AudioStreamHandler(QThread):
     # Qt Signal emitted when a mixed 60-second WAV chunk is completed
@@ -13,11 +14,12 @@ class AudioStreamHandler(QThread):
     # Signal emitted for logging system warnings to the UI
     warning_logged = Signal(str)
 
-    def __init__(self, target_sr: int = 16000, window_duration_sec: int = 60):
+    def __init__(self, target_sr: int = 16000, window_duration_sec: int = 60, energy_threshold_db: float = -45.0):
         super().__init__()
         self.target_sr = target_sr
         self.window_duration_sec = window_duration_sec
         self.total_target_samples = target_sr * window_duration_sec
+        self.vad = VoiceActivityDetector(energy_threshold_db=energy_threshold_db)
 
         self._is_running = False
         self._is_paused = False
@@ -90,10 +92,11 @@ class AudioStreamHandler(QThread):
                 target_samples = np.array(self.mixed_buffer[:self.total_target_samples], dtype=np.float32)
                 self.mixed_buffer = self.mixed_buffer[self.total_target_samples:]
 
-                # Pack into 16-bit PCM WAV bytes
-                wav_bytes = AudioMixer.convert_to_wav_bytes(target_samples, self.target_sr)
-                if wav_bytes:
-                    self.chunk_ready.emit(wav_bytes)
+                # Check for human speech activity before packaging and emitting
+                if self.vad.is_speech_present(target_samples, self.target_sr):
+                    wav_bytes = AudioMixer.convert_to_wav_bytes(target_samples, self.target_sr)
+                    if wav_bytes:
+                        self.chunk_ready.emit(wav_bytes)
 
     def stop(self):
         """

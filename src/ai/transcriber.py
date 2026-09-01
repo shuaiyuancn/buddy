@@ -2,8 +2,10 @@ import os
 import threading
 from datetime import datetime
 from pathlib import Path
+import numpy as np
 import google.generativeai as genai
 from src.config import TRANSCRIPTS_DIR, SUMMARIES_DIR
+from src.audio.vad import VoiceActivityDetector
 
 class FileAppender:
     """
@@ -70,6 +72,7 @@ class TranscriberService:
         self.config = config_dict or {}
         self.stt_provider = self.config.get("STT_PROVIDER", "gemini").lower()
         self.gcp_client = None
+        self.vad = VoiceActivityDetector()
         
         if self.stt_provider == "gcp":
             self._init_gcp_client()
@@ -98,11 +101,29 @@ class TranscriberService:
         except Exception as e:
             print(f"[Warning] Failed to initialize Google Cloud Speech Client: {e}")
 
+    def is_wav_silent(self, wav_bytes: bytes) -> bool:
+        """
+        Evaluates whether a WAV audio buffer contains meaningful human speech.
+        Returns True if the buffer is silent/empty, False if speech is detected.
+        """
+        if not wav_bytes or len(wav_bytes) <= 44:
+            return False
+        try:
+            pcm_data = np.frombuffer(wav_bytes[44:], dtype=np.int16).astype(np.float32) / 32768.0
+            if len(pcm_data) < 1600:  # less than 100ms
+                return False
+            return not self.vad.is_speech_present(pcm_data, sample_rate=16000)
+        except Exception:
+            return False
+
     def transcribe_chunk(self, wav_bytes: bytes) -> str:
         """
         Routes the transcription task to the configured speech-to-text provider.
         """
         if not wav_bytes:
+            return ""
+
+        if self.is_wav_silent(wav_bytes):
             return ""
 
         if self.stt_provider == "gcp":
