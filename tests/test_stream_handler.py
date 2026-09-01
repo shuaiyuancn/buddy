@@ -4,10 +4,12 @@ from unittest.mock import MagicMock, patch
 from src.audio.stream_handler import AudioStreamHandler
 
 def test_stream_handler_init():
-    handler = AudioStreamHandler(target_sr=16000, window_duration_sec=30, energy_threshold_db=-50.0)
+    handler = AudioStreamHandler(target_sr=16000, window_duration_sec=30, overlap_duration_sec=5, energy_threshold_db=-50.0)
     assert handler.target_sr == 16000
     assert handler.window_duration_sec == 30
+    assert handler.overlap_duration_sec == 5
     assert handler.total_target_samples == 480000
+    assert handler.overlap_samples == 80000
     assert handler.vad.energy_threshold_db == -50.0
     assert handler._is_running is False
     assert handler._is_paused is False

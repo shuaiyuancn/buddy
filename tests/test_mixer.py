@@ -62,3 +62,21 @@ def test_convert_to_wav_bytes():
         assert wav_file.getsampwidth() == 2  # 16-bit PCM (2 bytes)
         assert wav_file.getframerate() == sample_rate
         assert wav_file.getnframes() == sample_rate  # Exactly 16000 frames
+
+def test_anti_aliased_downsampling():
+    orig_sr = 48000
+    target_sr = 16000
+    duration = 1.0
+    t = np.linspace(0, duration, int(orig_sr * duration), endpoint=False)
+
+    # 1. Audible speech frequency (1000 Hz) should be preserved
+    speech_signal = np.sin(2 * np.pi * 1000.0 * t).astype(np.float32)
+    resampled_speech = AudioMixer.resample(speech_signal, orig_sr, target_sr)
+    speech_power = np.mean(resampled_speech ** 2)
+    assert speech_power > 0.35  # Preserved near 0.5 power of sine wave
+
+    # 2. Ultrasonic / out-of-band frequency (14000 Hz) should be heavily attenuated
+    high_freq_signal = np.sin(2 * np.pi * 14000.0 * t).astype(np.float32)
+    resampled_high_freq = AudioMixer.resample(high_freq_signal, orig_sr, target_sr)
+    high_freq_power = np.mean(resampled_high_freq ** 2)
+    assert high_freq_power < 0.05  # Strongly suppressed by anti-aliasing lowpass filter

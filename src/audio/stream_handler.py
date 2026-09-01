@@ -14,11 +14,13 @@ class AudioStreamHandler(QThread):
     # Signal emitted for logging system warnings to the UI
     warning_logged = Signal(str)
 
-    def __init__(self, target_sr: int = 16000, window_duration_sec: int = 60, energy_threshold_db: float = -45.0):
+    def __init__(self, target_sr: int = 16000, window_duration_sec: int = 60, overlap_duration_sec: int = 3, energy_threshold_db: float = -45.0):
         super().__init__()
         self.target_sr = target_sr
         self.window_duration_sec = window_duration_sec
+        self.overlap_duration_sec = overlap_duration_sec
         self.total_target_samples = target_sr * window_duration_sec
+        self.overlap_samples = target_sr * overlap_duration_sec
         self.vad = VoiceActivityDetector(energy_threshold_db=energy_threshold_db)
 
         self._is_running = False
@@ -28,7 +30,7 @@ class AudioStreamHandler(QThread):
         self.mic_queue = queue.Queue()
         self.speaker_queue = queue.Queue()
 
-        # Shared buffer for mixed 16kHz float32 audio samples
+        # Shared buffer for mixed 16kHz float32 audio samples (list of numpy arrays)
         self.mixed_buffer = []
 
         # Worker threads references
@@ -83,14 +85,21 @@ class AudioStreamHandler(QThread):
                 target_sr=self.target_sr
             )
 
-            # Append mixed chunk to our rolling window buffer
-            self.mixed_buffer.extend(mixed_chunk.tolist())
+            if len(mixed_chunk) > 0:
+                self.mixed_buffer.append(mixed_chunk)
+
+            # Calculate total buffered sample count
+            current_buffer_samples = sum(len(c) for c in self.mixed_buffer)
 
             # Once the buffer reaches our 60-second window, slice it and emit it
-            if len(self.mixed_buffer) >= self.total_target_samples:
-                # Slice exactly 60 seconds of samples
-                target_samples = np.array(self.mixed_buffer[:self.total_target_samples], dtype=np.float32)
-                self.mixed_buffer = self.mixed_buffer[self.total_target_samples:]
+            if current_buffer_samples >= self.total_target_samples:
+                all_samples = np.concatenate(self.mixed_buffer)
+                target_samples = all_samples[:self.total_target_samples]
+                
+                # Advance buffer retaining overlap samples to avoid clipping words at boundaries
+                advance_samples = max(1, self.total_target_samples - self.overlap_samples)
+                remaining_samples = all_samples[advance_samples:]
+                self.mixed_buffer = [remaining_samples] if len(remaining_samples) > 0 else []
 
                 # Check for human speech activity before packaging and emitting
                 if self.vad.is_speech_present(target_samples, self.target_sr):
