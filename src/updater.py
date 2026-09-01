@@ -190,27 +190,46 @@ class AutoUpdater(QObject):
     def _spawn_windows_restart_script(self, staged_exe: str, current_exe: str):
         """
         Launches a detached hidden PowerShell helper process that waits for the current
-        PID to exit, replaces Buddy.exe with the new binary, and launches the updated application.
+        PID to exit, unblocks and replaces Buddy.exe with the new binary, and launches the updated application.
         """
         pid = os.getpid()
-        ps_command = (
+        dest_dir = os.path.dirname(os.path.abspath(current_exe))
+
+        # Robust PowerShell updater script with retry loops, file unblocking, and timeout protection
+        ps_script = (
             f"$targetPid = {pid}; "
             f"$staged = '{staged_exe}'; "
             f"$dest = '{current_exe}'; "
-            f"while (Get-Process -Id $targetPid -ErrorAction SilentlyContinue) {{ Start-Sleep -Milliseconds 200 }}; "
-            f"Move-Item -Path $staged -Destination $dest -Force; "
-            f"Start-Process -FilePath $dest"
+            f"$workDir = '{dest_dir}'; "
+            f"$waitCount = 0; "
+            f"while ((Get-Process -Id $targetPid -ErrorAction SilentlyContinue) -and ($waitCount -lt 150)) {{ "
+            f"    Start-Sleep -Milliseconds 200; "
+            f"    $waitCount++; "
+            f"}}; "
+            f"$proc = Get-Process -Id $targetPid -ErrorAction SilentlyContinue; "
+            f"if ($proc) {{ Stop-Process -Id $targetPid -Force -ErrorAction SilentlyContinue; Start-Sleep -Milliseconds 500; }}; "
+            f"Unblock-File -Path $staged -ErrorAction SilentlyContinue; "
+            f"$moved = $false; "
+            f"$retries = 30; "
+            f"while (($retries -gt 0) -and (-not $moved)) {{ "
+            f"    try {{ "
+            f"        Move-Item -Path $staged -Destination $dest -Force -ErrorAction Stop; "
+            f"        $moved = $true; "
+            f"    }} catch {{ "
+            f"        Start-Sleep -Milliseconds 500; "
+            f"        $retries--; "
+            f"    }} "
+            f"}}; "
+            f"if ($moved -and (Test-Path $dest)) {{ "
+            f"    Start-Process -FilePath $dest -WorkingDirectory $workDir; "
+            f"}}"
         )
 
         subprocess.Popen(
-            ["powershell", "-WindowStyle", "Hidden", "-NoProfile", "-Command", ps_command],
+            ["powershell", "-ExecutionPolicy", "Bypass", "-WindowStyle", "Hidden", "-NoProfile", "-Command", ps_script],
             creationflags=subprocess.CREATE_NO_WINDOW | subprocess.DETACHED_PROCESS if os.name == 'nt' else 0,
             close_fds=True
         )
 
-        # Trigger clean exit of current instance
-        from PySide6.QtWidgets import QApplication
-        app = QApplication.instance()
-        if app:
-            app.quit()
-        sys.exit(0)
+        # Force immediate OS-level process exit to release all file handles instantly
+        os._exit(0)

@@ -126,3 +126,20 @@ def test_download_and_swap_worker():
     assert started_signals[0] == "0.2.0"
     assert len(completed_signals) == 1
     assert completed_signals[0] == "0.2.0"
+
+def test_spawn_windows_restart_script():
+    updater = AutoUpdater(current_version="0.1.0")
+
+    with patch("subprocess.Popen") as mock_popen, patch("os._exit") as mock_exit:
+        updater._spawn_windows_restart_script("C:/temp/Buddy_v0.2.0.exe", "C:/app/Buddy.exe")
+
+        mock_popen.assert_called_once()
+        args, kwargs = mock_popen.call_args
+        cmd = args[0]
+        assert "powershell" in cmd[0]
+        assert "Bypass" in cmd
+        assert "Move-Item" in cmd[-1]
+        assert "Start-Process" in cmd[-1]
+        assert "Unblock-File" in cmd[-1]
+        mock_exit.assert_called_once_with(0)
+
