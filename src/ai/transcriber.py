@@ -7,7 +7,7 @@ from pathlib import Path
 import numpy as np
 from google import genai
 from google.genai import types
-from src.config import TRANSCRIPTS_DIR, SUMMARIES_DIR
+from src.config import TRANSCRIPTS_DIR
 from src.audio.vad import VoiceActivityDetector
 
 class FileAppender:
@@ -244,53 +244,3 @@ class TranscriberService:
             error_msg = f"[Transcription Error (GCP): {str(e)}]"
             self.appender.append_transcription(error_msg)
             return error_msg
-
-    def compile_daily_summary(self, date_str: str = None) -> str:
-        """
-        Compiles the raw daily log into a structured executive report.
-        """
-        if not self.api_key:
-            return "[Error: GEMINI_API_KEY environment variable is missing]"
-
-        if not self.client:
-            try:
-                self.client = genai.Client(api_key=self.api_key)
-            except Exception as e:
-                return f"[Error: Failed to initialize Gemini Client: {str(e)}]"
-
-        if not date_str:
-            date_str = datetime.now().strftime("%Y-%m-%d")
-
-        raw_log_content = self.appender.read_raw_log(date_str)
-        if not raw_log_content or len(raw_log_content.strip()) < 10:
-            return "No transcript logs available to synthesize for this day."
-
-        try:
-            summary_prompt = (
-                "You are Buddy, a world-class executive chief of staff and personal assistant.\n"
-                f"Analyze the following raw timeline transcript representing a user's day ({date_str}).\n"
-                "Note: Transcripts contain speaker attributions ('Me:' for the user and 'Others:' for meeting participants / interlocutors).\n\n"
-                "YOUR INSTRUCTIONS:\n"
-                "1. Read the transcript from start to finish.\n"
-                "2. Detect transitions, verbal meeting demarcations (e.g. \"Buddy, starting the meeting on X\"), and subject changes to divide the day into logical, chronological meeting segments.\n"
-                "3. Compile a professional executive overview.\n"
-                "4. Extract an 'Action Items & Task Matrix' table detailing tasks, priority, and clear ownership (distinguishing commitments made by 'Me' vs assigned to or requested by 'Others').\n"
-                "5. Compile an 'Ideas Vault' isolating spontaneous thoughts, brainstorms, or feedback stated in the stream.\n"
-                "6. Format the output in a stunning, readable Markdown document.\n\n"
-                f"--- RAW DAILY TRANSCRIPT LOGS ---\n{raw_log_content}"
-            )
-
-            response = self.client.models.generate_content(
-                model="gemini-2.5-pro",
-                contents=summary_prompt
-            )
-            summary_md = response.text.strip() if response.text else ""
-
-            # Save the synthesized report
-            summary_path = SUMMARIES_DIR / f"{date_str}_summary.md"
-            with open(summary_path, "w", encoding="utf-8") as f:
-                f.write(summary_md)
-
-            return summary_md
-        except Exception as e:
-            return f"[Summarization Error: {str(e)}]"

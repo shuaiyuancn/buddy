@@ -1,8 +1,8 @@
 # Buddy 🎙️
 
-> **Always-on, passive, windowless background audio transcriber & daily executive summarizer for Windows 10/11.**
+> **Always-on, passive, windowless background audio transcriber with dual-channel speaker attribution for Windows 10/11.**
 
-Buddy runs silently in the system tray, capturing system loopback audio and microphone input, detecting speech via Voice Activity Detection (VAD), transcribing speech in near real-time via Gemini / Google Cloud Speech-to-Text v2 (Chirp 3), and compiling structured daily Markdown summaries.
+Buddy runs silently in the system tray, capturing microphone input ("Me") and speaker loopback audio ("Others"), detecting speech via Voice Activity Detection (VAD), and transcribing speech in near real-time via Gemini 2.5 Flash / Google Cloud Speech-to-Text v2 (Chirp 3) into timestamped daily Markdown logs.
 
 ---
 
@@ -23,10 +23,17 @@ The installer will:
 
 ---
 
-## 🔄 Automatic & In-App Updates
+## 🎙️ System Tray & Controls
 
-* **Automatic Background Check**: Buddy checks GitHub Releases every **1 hour** (and 15s after startup). When a new version is released, Buddy automatically downloads the update and performs a seamless atomic process restart.
-* **Manual Check**: Right-click the Buddy system tray icon and select **Check for Updates...** at any time.
+* **Dynamic Status Indicators**:
+  * ⚪ **Sleeping**: Standby mode, monitoring for speech.
+  * 🔵 **Active**: Real-time audio recording & transcription.
+  * 🟡 **Paused**: Listening suspended.
+* **Smart Pause**:
+  * **Pause Listening**: Instantly suspend or resume audio capture.
+  * **Pause Until 8:00 AM Tomorrow**: Convenient scheduled pause for evening/night work, automatically resuming at 8:00 AM the next morning.
+* **Transcripts Access**: Click **Open Transcripts Folder** to view daily markdown logs saved in `%USERPROFILE%\.buddy\transcripts\`.
+* **Automatic Background Updates**: Buddy checks GitHub Releases hourly and updates seamlessly. You can also manually check via **Check for Updates...**.
 
 ---
 

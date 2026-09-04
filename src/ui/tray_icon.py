@@ -3,17 +3,18 @@ import sys
 import threading
 import concurrent.futures
 import webbrowser
+from datetime import datetime, timedelta
 from pathlib import Path
 from PySide6.QtWidgets import QSystemTrayIcon, QMenu, QMessageBox
 from PySide6.QtGui import QIcon, QPixmap, QPainter, QColor, QPen
-from PySide6.QtCore import QObject, Slot, Qt
-from src.config import TRANSCRIPTS_DIR, SUMMARIES_DIR, APP_VERSION
+from PySide6.QtCore import QObject, Slot, Qt, QTimer
+from src.config import TRANSCRIPTS_DIR, APP_VERSION
 from src.updater import AutoUpdater
 
 class TrayIconController(QObject):
     """
     Coordinates System Tray GUI interactions, context menus, toast notifications,
-    and real-time visual status updates (Sleeping, Active, Summarizing, Paused).
+    and real-time visual status updates (Sleeping, Active, Paused).
     """
     def __init__(self, audio_handler, transcriber_service, updater: AutoUpdater = None):
         super().__init__()
@@ -22,6 +23,11 @@ class TrayIconController(QObject):
         self.executor = concurrent.futures.ThreadPoolExecutor(max_workers=2, thread_name_prefix="buddy_worker")
         self.updater = updater or AutoUpdater(parent=self)
 
+        # Scheduled auto-resume timer for "Pause until 8am" feature
+        self._auto_resume_timer = QTimer(self)
+        self._auto_resume_timer.setSingleShot(True)
+        self._auto_resume_timer.timeout.connect(self._on_auto_resume_timer_fired)
+
         # Create main System Tray instance
         self.tray = QSystemTrayIcon(self)
         
@@ -29,7 +35,6 @@ class TrayIconController(QObject):
         self.icons = {
             "sleeping": self._draw_tray_icon("sleeping"),
             "active": self._draw_tray_icon("active"),
-            "summarizing": self._draw_tray_icon("summarizing"),
             "paused": self._draw_tray_icon("paused"),
         }
         # Backward compatibility properties for tests
@@ -75,7 +80,7 @@ class TrayIconController(QObject):
     def set_status(self, state: str):
         """
         Updates the tray icon and tooltip based on operational status.
-        Supported states: 'sleeping', 'active', 'summarizing', 'paused'.
+        Supported states: 'sleeping', 'active', 'paused'.
         """
         if getattr(self.audio_handler, "_is_paused", False) and state != "paused":
             state = "paused"
@@ -87,11 +92,16 @@ class TrayIconController(QObject):
         icon = self.icons.get(state, self.icons["sleeping"])
         self.tray.setIcon(icon)
 
+        paused_tooltip = (
+            "Buddy - Paused (Resumes tomorrow at 8:00 AM)" 
+            if self._auto_resume_timer.isActive() 
+            else "Buddy - Paused"
+        )
+
         tooltips = {
             "sleeping": "Buddy - Sleeping (Waiting for audio)",
             "active": "Buddy - Recording & Transcribing",
-            "summarizing": "Buddy - Generating Daily Summary...",
-            "paused": "Buddy - Paused",
+            "paused": paused_tooltip,
         }
         self.tray.setToolTip(tooltips.get(state, "Buddy"))
 
@@ -100,7 +110,7 @@ class TrayIconController(QObject):
         """
         Switches between sleeping and active recording states based on real-time audio detection.
         """
-        if self._current_state == "summarizing" or getattr(self.audio_handler, "_is_paused", False):
+        if getattr(self.audio_handler, "_is_paused", False):
             return
         self.set_status("active" if is_active else "sleeping")
 
@@ -110,7 +120,6 @@ class TrayIconController(QObject):
         States:
         - 'sleeping': Muted slate dot with subtle outer ring.
         - 'active' (or True): Radiant cyan dot with acoustic capture rings.
-        - 'summarizing': Radiant violet dot with golden synthesis arcs.
         - 'paused' (or False): Muted slate gray dot with dashed boundary.
         """
         if isinstance(state, bool):
@@ -137,21 +146,6 @@ class TrayIconController(QObject):
             # Subtle inner aura
             painter.setPen(QPen(QColor(0, 229, 255, 100), 1, Qt.SolidLine))
             painter.drawEllipse(6, 6, 20, 20)
-
-        elif state == "summarizing":
-            # Vibrant purple core with golden/amber synthesis arcs
-            purple_color = QColor("#A855F7")
-            amber_color = QColor("#F59E0B")
-            
-            painter.setBrush(purple_color)
-            painter.setPen(Qt.NoPen)
-            painter.drawEllipse(9, 9, 14, 14)
-            
-            # Golden synthesis arcs
-            painter.setBrush(Qt.NoBrush)
-            painter.setPen(QPen(amber_color, 2, Qt.SolidLine))
-            painter.drawArc(3, 3, 26, 26, 30 * 16, 120 * 16)
-            painter.drawArc(3, 3, 26, 26, 210 * 16, 120 * 16)
 
         elif state == "paused":
             # Slate gray dot with muted dashed ring
@@ -185,16 +179,13 @@ class TrayIconController(QObject):
         self.toggle_action = self.menu.addAction("Pause Listening")
         self.toggle_action.triggered.connect(self.on_toggle_listening)
 
-        self.menu.addSeparator()
+        self.pause_until_8am_action = self.menu.addAction("Pause Until 8:00 AM Tomorrow")
+        self.pause_until_8am_action.triggered.connect(self.on_pause_until_8am)
 
-        summarize_action = self.menu.addAction("Generate Daily Summary")
-        summarize_action.triggered.connect(self.on_generate_summary)
+        self.menu.addSeparator()
 
         open_transcripts_action = self.menu.addAction("Open Transcripts Folder")
         open_transcripts_action.triggered.connect(self.on_open_transcripts_folder)
-
-        open_summaries_action = self.menu.addAction("Open Summaries Folder")
-        open_summaries_action.triggered.connect(self.on_open_summaries_folder)
 
         self.menu.addSeparator()
 
@@ -209,8 +200,11 @@ class TrayIconController(QObject):
     @Slot()
     def on_toggle_listening(self):
         """
-        Handles pausing and resuming the continuous audio queues.
+        Handles manually pausing and resuming the continuous audio queues.
         """
+        if self._auto_resume_timer.isActive():
+            self._auto_resume_timer.stop()
+
         if self.audio_handler._is_paused:
             self.audio_handler.resume()
             self.set_status("active" if getattr(self.audio_handler, "_is_speech_active", False) else "sleeping")
@@ -221,6 +215,47 @@ class TrayIconController(QObject):
             self.set_status("paused")
             self.toggle_action.setText("Resume Listening")
             self.tray.showMessage("Buddy Paused", "Listening suspended.", QSystemTrayIcon.MessageIcon.Information, 2000)
+
+    @Slot()
+    def on_pause_until_8am(self):
+        """
+        Pauses audio capture until 8:00 AM tomorrow and sets a timer to resume automatically.
+        """
+        now = datetime.now()
+        target = (now + timedelta(days=1)).replace(hour=8, minute=0, second=0, microsecond=0)
+        seconds_until_8am = (target - now).total_seconds()
+        ms_until_8am = int(max(1, seconds_until_8am) * 1000)
+
+        if self._auto_resume_timer.isActive():
+            self._auto_resume_timer.stop()
+
+        self.audio_handler.pause()
+        self._auto_resume_timer.start(ms_until_8am)
+        self.set_status("paused")
+        self.toggle_action.setText("Resume Listening")
+        self.tray.setToolTip("Buddy - Paused (Resumes tomorrow at 8:00 AM)")
+        self.tray.showMessage(
+            "Buddy Paused",
+            f"Listening suspended until tomorrow at 8:00 AM ({target.strftime('%Y-%m-%d 08:00')}).",
+            QSystemTrayIcon.MessageIcon.Information,
+            3000
+        )
+
+    @Slot()
+    def _on_auto_resume_timer_fired(self):
+        """
+        Automatically resumes listening when the scheduled pause expires.
+        """
+        if self.audio_handler._is_paused:
+            self.audio_handler.resume()
+            self.set_status("active" if getattr(self.audio_handler, "_is_speech_active", False) else "sleeping")
+            self.toggle_action.setText("Pause Listening")
+            self.tray.showMessage(
+                "Buddy Active",
+                "Scheduled pause ended. Listening resumed automatically.",
+                QSystemTrayIcon.MessageIcon.Information,
+                4000
+            )
 
     def _safe_transcribe(self, wav_bytes: bytes):
         """
@@ -243,53 +278,12 @@ class TrayIconController(QObject):
             self.executor.submit(self._safe_transcribe, wav_bytes)
 
     @Slot()
-    def on_generate_summary(self):
-        """
-        Gathers raw logs and compiles the final summary using the worker thread pool.
-        """
-        self.set_status("summarizing")
-        self.tray.showMessage("Buddy - Processing", "Compiling your daily summary. Please wait...", QSystemTrayIcon.MessageIcon.Information, 3000)
-        
-        def process():
-            try:
-                summary_text = self.transcriber.compile_daily_summary()
-                if "Error" in summary_text or "No transcript logs" in summary_text:
-                    self.tray.showMessage("Buddy - Summary Failed", summary_text, QSystemTrayIcon.MessageIcon.Warning, 5000)
-                else:
-                    self.tray.showMessage(
-                        "Buddy - Summary Completed",
-                        "Your daily summary markdown has been saved successfully!",
-                        QSystemTrayIcon.MessageIcon.Information,
-                        5000
-                    )
-                    # Open summaries folder in Explorer
-                    self.on_open_summaries_folder()
-            except Exception as e:
-                self.tray.showMessage("Buddy - Summary Error", str(e), QSystemTrayIcon.MessageIcon.Warning, 5000)
-            finally:
-                if getattr(self.audio_handler, "_is_paused", False):
-                    self.set_status("paused")
-                else:
-                    self.set_status("active" if getattr(self.audio_handler, "_is_speech_active", False) else "sleeping")
-
-        if hasattr(self, "executor") and self.executor is not None:
-            self.executor.submit(process)
-
-    @Slot()
     def on_open_transcripts_folder(self):
         """
         Opens transcripts directory in Windows explorer.
         """
         if TRANSCRIPTS_DIR.exists():
             os.startfile(str(TRANSCRIPTS_DIR))
-
-    @Slot()
-    def on_open_summaries_folder(self):
-        """
-        Opens summaries directory in Windows explorer.
-        """
-        if SUMMARIES_DIR.exists():
-            os.startfile(str(SUMMARIES_DIR))
 
     @Slot(str)
     def show_warning_notification(self, text: str):
@@ -365,6 +359,8 @@ class TrayIconController(QObject):
         """
         Cleanly stops background streams, flushes worker threads, and exits the application.
         """
+        if self._auto_resume_timer.isActive():
+            self._auto_resume_timer.stop()
         self.updater.stop()
         self.audio_handler.stop()
         self.tray.hide()

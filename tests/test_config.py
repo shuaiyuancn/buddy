@@ -23,7 +23,6 @@ def mock_config_paths(tmp_path):
     """Isolate all config operations to a temporary directory."""
     with patch("src.config.USER_BUDDY_DIR", tmp_path), \
          patch("src.config.TRANSCRIPTS_DIR", tmp_path / "transcripts"), \
-         patch("src.config.SUMMARIES_DIR", tmp_path / "summaries"), \
          patch("src.config.CONFIG_FILE", tmp_path / "config.json"):
         yield
 
@@ -31,9 +30,8 @@ def test_initialize_directories():
     # Execute folder check (should use mocked tmp_path)
     initialize_directories()
     
-    # Assert folders exist under mock
+    # Assert folder exists under mock
     assert src.config.TRANSCRIPTS_DIR.exists()
-    assert src.config.SUMMARIES_DIR.exists()
 
 def test_load_config_creates_template():
     # Ensure config file doesn't exist initially

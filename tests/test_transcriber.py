@@ -91,31 +91,6 @@ def test_transcribe_chunk_gemini_interaction(temp_transcript_dir):
     raw_log = service.appender.read_raw_log()
     assert "Hello, this is a simulated transcription." in raw_log
 
-def test_compile_daily_summary(temp_transcript_dir):
-    service = TranscriberService(api_key="mock-api-key")
-    service.appender = FileAppender(temp_transcript_dir)
-
-    mock_client = MagicMock()
-    mock_response = MagicMock()
-    mock_response.text = "# Daily Summary Report\n\n- Tasks done\n- Ideas saved"
-    mock_client.models.generate_content.return_value = mock_response
-    service.client = mock_client
-
-    # Mock an existing log
-    service.appender.append_transcription("User: Next meeting is daily standup.")
-
-    # Patch the global summaries folder directory in config module to prevent cluttering real folders
-    with patch("src.ai.transcriber.SUMMARIES_DIR", temp_transcript_dir):
-        summary_result = service.compile_daily_summary()
-
-        assert "# Daily Summary Report" in summary_result
-        expected_summary_file = temp_transcript_dir / f"{datetime.now().strftime('%Y-%m-%d')}_summary.md"
-        assert expected_summary_file.exists()
-        assert "# Daily Summary Report" in expected_summary_file.read_text(encoding="utf-8")
-        
-        call_kwargs = mock_client.models.generate_content.call_args[1]
-        assert call_kwargs["model"] == "gemini-2.5-pro"
-
 @patch("google.cloud.speech_v2.SpeechClient")
 def test_transcribe_chunk_gcp_routing(mock_speech_client_class, temp_transcript_dir):
     # Setup mock SpeechClient and response

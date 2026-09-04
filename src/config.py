@@ -19,7 +19,6 @@ def initialize_directories():
     Ensure the user's storage folders exist.
     """
     TRANSCRIPTS_DIR.mkdir(parents=True, exist_ok=True)
-    SUMMARIES_DIR.mkdir(parents=True, exist_ok=True)
 
 def load_config():
     """
@@ -155,7 +154,7 @@ def check_api_key_or_toast_and_exit():
     if not api_key:
         api_key = get_secure_api_key()
 
-    # Always verify GEMINI_API_KEY (needed for summaries)
+    # Always verify GEMINI_API_KEY (needed for speech-to-text)
     if not api_key:
         trigger_toast_and_exit(f"GEMINI_API_KEY is missing! Enter your key in {CONFIG_FILE} and restart.")
 
