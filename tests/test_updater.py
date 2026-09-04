@@ -39,8 +39,9 @@ def test_check_updates_new_version_found():
     available_signals = []
     updater.update_available.connect(lambda v, url: available_signals.append((v, url)))
 
-    with patch("requests.get", return_value=mock_resp):
+    with patch("requests.get", return_value=mock_resp), patch.object(updater, "apply_update_async") as mock_apply:
         updater._check_worker(manual=True)
+        mock_apply.assert_called_once_with("0.2.0", "https://github.com/shuaiyuancn/buddy/releases/download/v0.2.0/Buddy.exe")
 
     assert len(available_signals) == 1
     assert available_signals[0] == ("0.2.0", "https://github.com/shuaiyuancn/buddy/releases/download/v0.2.0/Buddy.exe")
@@ -111,12 +112,15 @@ def test_download_and_swap_worker():
     updater = AutoUpdater(current_version="0.1.0", config={"GITHUB_REPO": "shuaiyuancn/buddy", "AUTO_UPDATE": False})
     
     started_signals = []
+    progress_signals = []
     completed_signals = []
     updater.update_started.connect(lambda v: started_signals.append(v))
+    updater.update_progress.connect(lambda d, t: progress_signals.append((d, t)))
     updater.update_completed.connect(lambda v: completed_signals.append(v))
 
     mock_resp = MagicMock()
     mock_resp.raise_for_status.return_value = None
+    mock_resp.headers = {"content-length": "20"}
     mock_resp.iter_content.return_value = [b"MZ_DUMMY_EXE_PAYLOAD"]
 
     with patch("requests.get", return_value=mock_resp):
@@ -124,6 +128,8 @@ def test_download_and_swap_worker():
 
     assert len(started_signals) == 1
     assert started_signals[0] == "0.2.0"
+    assert len(progress_signals) == 1
+    assert progress_signals[0] == (len(b"MZ_DUMMY_EXE_PAYLOAD"), 20)
     assert len(completed_signals) == 1
     assert completed_signals[0] == "0.2.0"
 

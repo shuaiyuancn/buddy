@@ -162,3 +162,11 @@ def test_on_exit_shuts_down_cleanly(qt_app):
         mock_audio.stop.assert_called_once()
         controller.executor.shutdown.assert_called_once_with(wait=True, cancel_futures=False)
         mock_exit.assert_called_once_with(0)
+
+def test_on_update_progress_updates_tooltip(qt_app):
+    mock_audio = MagicMock()
+    mock_transcriber = MagicMock()
+
+    controller = TrayIconController(mock_audio, mock_transcriber)
+    controller._on_update_progress(50 * 1024 * 1024, 100 * 1024 * 1024)
+    assert "Downloading update... 50% (50.0/100.0 MB)" in controller.tray.toolTip()

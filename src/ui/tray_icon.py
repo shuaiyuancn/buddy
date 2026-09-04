@@ -60,6 +60,7 @@ class TrayIconController(QObject):
         # Connect Auto-Updater signals
         self.updater.update_available.connect(self._on_update_available)
         self.updater.update_started.connect(self._on_update_started)
+        self.updater.update_progress.connect(self._on_update_progress)
         self.updater.update_completed.connect(self._on_update_completed)
         self.updater.update_error.connect(self.show_warning_notification)
         self.updater.check_finished.connect(self._on_check_finished)
@@ -341,6 +342,20 @@ class TrayIconController(QObject):
         Updates tooltip during active binary download.
         """
         self.tray.setToolTip(f"Buddy - Downloading v{version_tag}...")
+
+    @Slot(int, int)
+    def _on_update_progress(self, downloaded: int, total: int):
+        """
+        Updates tooltip with real-time download progress.
+        """
+        if total > 0:
+            percent = int((downloaded / total) * 100)
+            mb_down = downloaded / (1024 * 1024)
+            mb_total = total / (1024 * 1024)
+            self.tray.setToolTip(f"Buddy - Downloading update... {percent}% ({mb_down:.1f}/{mb_total:.1f} MB)")
+        else:
+            mb_down = downloaded / (1024 * 1024)
+            self.tray.setToolTip(f"Buddy - Downloading update... ({mb_down:.1f} MB)")
 
     @Slot(str)
     def _on_update_completed(self, version_tag: str):

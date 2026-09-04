@@ -20,6 +20,7 @@ class AutoUpdater(QObject):
     """
     update_available = Signal(str, str)     # version, download_url
     update_started = Signal(str)           # version
+    update_progress = Signal(int, int)     # downloaded_bytes, total_bytes
     update_completed = Signal(str)         # version
     update_error = Signal(str)             # error_message
     check_finished = Signal(bool, str)     # update_found, message_or_version
@@ -120,8 +121,8 @@ class AutoUpdater(QObject):
                     self.update_available.emit(tag_name, download_url)
                     self.check_finished.emit(True, tag_name)
                     
-                    # If auto-update is enabled, proceed to download and install
-                    if self.enabled and not manual:
+                    # If auto-update is enabled or manually requested, proceed to download and install
+                    if self.enabled or manual:
                         self.apply_update_async(tag_name, download_url)
                 else:
                     if manual:
@@ -171,10 +172,16 @@ class AutoUpdater(QObject):
             resp = requests.get(download_url, stream=True, timeout=60)
             resp.raise_for_status()
 
+            total_size = int(resp.headers.get("content-length", 0))
+            downloaded = 0
+
             with open(staged_exe, "wb") as f:
                 for chunk in resp.iter_content(chunk_size=65536):
                     if chunk:
                         f.write(chunk)
+                        downloaded += len(chunk)
+                        if total_size > 0:
+                            self.update_progress.emit(downloaded, total_size)
 
             self.update_completed.emit(new_version_tag)
 
