@@ -1,82 +1,90 @@
 # Product Requirements Document (PRD)
 ## Project Name: Buddy
-**Version:** 1.1.0  
-**Status:** Approved  
+**Version:** 1.5.0  
+**Status:** Implemented & Released  
 **Target Platform:** Windows 10/11 (x64)
 
 ---
 
 ## 1. Executive Summary & Product Vision
 
-For professionals juggling back-to-back virtual meetings, spontaneous brainstorms, and task lists, manually capturing details is a major distraction.
+For professionals juggling back-to-back virtual meetings, spontaneous brainstorms, and ongoing work conversations, manual note-taking is a constant friction point.
 
-**Buddy** is a completely passive, always-on background assistant for Windows. Operating silently in the system tray, it continuously listens to both the user's microphone and system audio (speakers). Rather than requiring manual session segmentation or hotkey commands, Buddy operates entirely through natural audio stream capturing. 
+**Buddy** is a passive, always-on background audio transcriber for Windows 10 and 11. Operating silently in the system tray, it continuously listens to both the user's microphone ("Me") and system speaker loopback audio ("Others"), separating and attributing speaker voices automatically.
 
-Buddy captures audio in continuous, lightweight buffers, transcribes them, and instantly appends the timestamped transcription to a local, human-readable **Markdown (`.md`)** raw transcript log. Users speak transition markers and hints naturally (e.g., *"Buddy, the next meeting is about the frontend redesign"*). At the end of the day, or upon direct user request, Buddy passes this consolidated raw Markdown transcript to Gemini to perform comprehensive timeline segmentation, extract spontaneous ideas, and compile a structured, action-oriented executive digest.
+Buddy records sliding audio buffers (30–60s), filters out silent buffers using high-performance Voice Activity Detection (VAD), transcribes active speech via Gemini 2.5 Flash (or GCP Speech-to-Text v2 / Chirp 3), and instantly appends timestamped entries to a local, human-readable **Markdown (`.md`)** raw transcript log.
 
 ---
 
 ## 2. Core Features & Capabilities
 
-### F01: Passive Dual-Channel Audio Capture
-*   **Description:** Buddy continuously records sound from the physical microphone input and the computer's system audio (speakers) via native Windows WASAPI loopback, without requiring virtual audio cables.
+### F01: Dual-Channel Audio Capture & Speaker Attribution
+*   **Description:** Buddy continuously records sound simultaneously from physical microphone input ("Me") and Windows WASAPI loopback speaker audio ("Others") without requiring virtual audio cables.
+*   **Channel Mapping:**
+    *   **Left Channel:** Hardware Microphone ("Me").
+    *   **Right Channel:** WASAPI System Loopback ("Others" / meeting attendees / remote speakers).
 *   **Requirements:**
-    *   Treats audio capture as a unified, continuous background recording stream.
-    *   Operates with minimal CPU and memory overhead, running silently in the system tray.
-    *   Gracefully handles silent periods without dropping the capture connection.
+    *   Unified, synchronized background recording stream.
+    *   Stereo standardization (16 kHz, 16-bit PCM WAV).
+    *   Gemini multi-modal prompt instructs the model to tag speaker dialogue distinctly (e.g., `[Me]` vs `[Others]`).
 
-### F02: Continuous Direct-to-Markdown Transcript Logging
-*   **Description:** Rather than storing large, raw audio recordings on disk or cutting files into complicated chunks, Buddy transcribes sliding audio windows (e.g., every 30 seconds) and appends the text directly to a local Markdown file.
+### F02: Smart Voice Activity Detection (VAD) & Silence Filtering
+*   **Description:** Buddy checks both audio channels for genuine voice activity before dispatching network requests.
+*   **Requirements:**
+    *   Frame-based RMS energy and Zero Crossing Rate (ZCR) analysis across 30ms sub-frames.
+    *   Short acoustic click and continuous background noise rejection.
+    *   Pure silence chunks skip API calls entirely, conserving network bandwidth and API quota.
+
+### F03: Continuous Direct-to-Markdown Transcript Logging
+*   **Description:** Rather than storing large audio recordings on disk, Buddy transcribes sliding audio windows and writes text directly to a local Markdown log.
 *   **Requirements:**
     *   **Log Storage Path:** Saved in the user's home directory:  
         `%USERPROFILE%\.buddy\transcripts\YYYY-MM-DD_raw.md`
-    *   **Append Operation:** Every 30-second mixed audio buffer is transcribed (using a lightweight speech-to-text service or Gemini inline requests) and appended instantly in the following format:
+    *   **Format:**
         ```markdown
-        ### [21:15:30]
-        We need to make sure the database is migrated to PostgreSQL.
+        ### [14:22:15]
+        **[Me]:** Hey team, let's review the deployment pipeline architecture.
+        **[Others]:** Sounds good, we just merged the latest pull request.
         ```
-    *   **Crash Resilience:** Appending directly to a standard text/markdown file ensures that even during a power loss or crash, the transcript up to the last 30 seconds is safely persisted.
+    *   **Crash Resilience:** Appending directly to disk ensures that even during unexpected power loss, all transcripts up to the last chunk are preserved.
 
-### F03: Natural Spoken Cues
-*   **Description:** There are no hotkeys, popups, or HUD GUI components. The user interacts with Buddy entirely by speaking naturally at any point.
+### F04: Smart Pause & Auto-Resume
+*   **Description:** Provides manual pause and scheduled auto-resume for evening/night workflow convenience.
 *   **Requirements:**
-    *   The user can inject session hints or context markers simply by verbalizing them:  
-        *"Buddy, starting the standup meeting now."* or *"Buddy, spontaneous idea: let's automate the deployment pipeline."*
-    *   These cues are captured and written directly to the continuous Markdown log file.
+    *   **Pause Listening:** Immediately toggles recording suspension and resumes on demand.
+    *   **Pause Until 8:00 AM Tomorrow:** Calculates duration until 8:00:00 AM the next day, suspends audio capture, and sets a high-precision timer to automatically resume listening the next morning.
+    *   Manual resume cancels any scheduled timer and resumes listening immediately.
 
-### F04: On-Demand & End-of-Day Digest Generation
-*   **Description:** Decoupled from the recording loop, the daily summary is generated when the user selects "Generate Summary" in the tray menu or automatically at the end of the day.
+### F05: In-App & Background Auto-Updater
+*   **Description:** Automatic background checking, downloading, and atomic process restart for seamless updates from GitHub Releases.
 *   **Requirements:**
-    *   **Compilation Prompt:** Buddy reads the active daily raw Markdown log (`YYYY-MM-DD_raw.md`) and sends it to Gemini (e.g., `gemini-1.5-pro` or `gemini-1.5-flash`) along with an analytical prompt instruction.
-    *   **Semantic Synthesis:** Gemini parses the spoken cues, segments the day's timeline, classifies conversational contexts, and extracts key spontaneous ideas.
-    *   **Output File:** Saved directly in the user's visible folder:  
-        `%USERPROFILE%\.buddy\summaries\YYYY-MM-DD_summary.md`
-    *   **Structure of Output:**
-        *   **Executive Daily Summary:** High-level narrative of the day's activities.
-        *   **Segmented Meeting Timeline:** Automatically grouped sections based on detected spoken cues.
-        *   **Action Items & Ownership Matrix:** Bulleted lists of tasks, owners, and priority.
-        *   **Spontaneous Ideas Vault:** Curated brainstorm points and spoken thoughts.
+    *   Hourly periodic background update checks via GitHub Releases API.
+    *   Manual **Check for Updates...** tray action.
+    *   Real-time download progress tracking with byte counts and percentage in the tray tooltip (`Buddy - Downloading update... 45% (37.4/83.0 MB)`).
+    *   Detached PowerShell restart worker for atomic replacement of `Buddy.exe` on Windows.
 
 ---
 
 ## 3. User Interface & User Experience (UI/UX)
 
-To keep Buddy distraction-free, the application has **no standard main window interface**. It is designed to be 100% passive:
+Buddy is designed to be 100% passive with **no main window interface**:
 
-### 3.1. System Tray Icon & Control Menu
-*   **Visual Design:** Simple icon in the Windows taskbar signifying recording state (Active/Listening, Paused, Processing).
-*   **Menu Options:**
-    *   `Resume / Pause Listening`
-    *   `Generate Summary (On-Demand)`
-    *   `Open Transcripts Directory` (Opens `%USERPROFILE%\.buddy\transcripts\`)
-    *   `Open Summaries Directory` (Opens `%USERPROFILE%\.buddy\summaries\`)
-    *   `Settings` (Configure API Keys, toggle audio input devices)
-    *   `Exit`
+### 3.1. Dynamic System Tray Status Indicators
+*   ⚪ **Sleeping**: Standby mode, monitoring for speech activity.
+*   🔵 **Active**: Real-time voice activity detected, recording and transcribing.
+*   🟡 **Paused**: Audio capture suspended (manual or scheduled until 8am).
 
-### 3.2. Native Windows Notifications
-*   **Description:** Instead of complex in-app popups, Buddy uses standard Windows toast notifications to communicate state changes:
-    *   *Notification 1:* *"Buddy is now active and listening in the background."*
-    *   *Notification 2:* *"Summary generated successfully! Saved to .buddy\summaries."*
+### 3.2. Context Menu Actions
+*   `Resume / Pause Listening`
+*   `Pause Until 8:00 AM Tomorrow`
+*   `Open Transcripts Folder` (Opens `%USERPROFILE%\.buddy\transcripts\`)
+*   `Check for Updates...` (Manually triggers GitHub release check & background download)
+*   `Exit`
+
+### 3.3. Native Windows Notifications
+*   Startup notification: *"Buddy is running silently in the background and listening."*
+*   Scheduled pause: *"Listening paused. Auto-resume scheduled for tomorrow at 08:00:00."*
+*   Update notifications for available releases, download start, and restart readiness.
 
 ---
 
@@ -86,30 +94,33 @@ To keep Buddy distraction-free, the application has **no standard main window in
 sequenceDiagram
     autonumber
     actor User
-    participant System as Windows Audio (Mic & Speakers)
-    participant App as Buddy Background App
+    participant Mic as Hardware Mic (Me)
+    participant Loop as WASAPI Loopback (Others)
+    participant App as Buddy Background Engine
+    participant VAD as Voice Activity Detector
+    participant API as Gemini 2.5 Flash / GCP Chirp 3
     participant Log as YYYY-MM-DD_raw.md
-    participant Gemini as Gemini AI API
-    participant Digest as YYYY-MM-DD_summary.md
 
     User->>App: Start App (System Tray)
     activate App
-    App->>System: Init Audio Capture Devices (WASAPI)
+    App->>Mic: Start mic capture thread
+    App->>Loop: Start loopback capture thread
     
-    loop Sliding Window Capture (e.g., every 30 seconds)
-        System-->>App: Raw Audio Buffers (Mic + System Output)
-        App->>App: Mix channels to temporary in-memory buffer
-        App->>Gemini: Transcribe buffer (Speech-to-Text)
-        Gemini-->>App: Transcribed Text Block
-        App->>Log: Append Timestamp & Text to raw transcript file
+    loop Sliding Window Capture (e.g. 60 seconds)
+        Mic-->>App: Mic PCM samples
+        Loop-->>App: Loopback PCM samples
+        App->>App: Mix down to stereo (L=Me, R=Others)
+        App->>VAD: Analyze RMS & ZCR speech activity
+        alt Pure Silence / Noise
+            VAD-->>App: Silence detected
+            App->>App: Discard chunk, skip API call
+        else Speech Present
+            VAD-->>App: Speech confirmed
+            App->>API: Send stereo WAV bytes with speaker attribution prompt
+            API-->>App: Return formatted transcript with [Me] / [Others] tags
+            App->>Log: Append Timestamp & text block to daily Markdown file
+        end
     end
-
-    User->>App: Right-clicks Tray -> Selects "Generate Summary"
-    App->>Log: Read entire accumulated raw log text
-    App->>Gemini: Pass raw log with daily summarization instruction prompt
-    Gemini-->>App: Return structured Markdown Daily Summary
-    App->>Digest: Write summary file
-    App-->>User: Trigger standard Windows toast notification (Open Summary)
     deactivate App
 ```
 
@@ -117,7 +128,6 @@ sequenceDiagram
 
 ## 5. Security & Privacy
 
-Since Buddy records conversations continuously, strict privacy protocols are followed:
-1.  **Local Storage:** Raw audio chunks are processed entirely in-memory or in short-lived temp buffers, then sent securely to the Gemini API for translation. No long-term raw audio files are stored locally, saving disk space and keeping voice files private.
-2.  **Plain-Text Transparency:** Storing raw transcripts in plain Markdown allows the user to open, edit, or purge portions of their raw log file at any point before requesting summaries.
-3.  **API Key Safety:** Keys are securely stored in the Windows Credential Manager.
+1.  **Zero Audio Retention:** Audio chunks exist only in-memory in short-lived sliding buffers. No audio files are written to disk.
+2.  **Plain-Text Transparency:** Transcripts are saved locally in plaintext Markdown (`%USERPROFILE%\.buddy\transcripts\`), allowing easy inspection, editing, or deletion.
+3.  **Encrypted Credential Storage:** API keys are protected in the Windows Credential Manager or local configuration file (`%USERPROFILE%\.buddy\config.json`).

@@ -1,14 +1,14 @@
 # System Design Specification (C4 Model)
 ## Project Name: Buddy
 **Architectural Pattern:** C4 Architecture Model & Concurrent Threading  
-**Author:** Antigravity (AI System Architect)  
-**Status:** Design Approved  
+**Status:** Implemented & Verified  
+**Target Platform:** Windows 10 / 11 (x64)
 
 ---
 
 ## 1. Introduction
 
-This document provides a highly detailed system design specification for **Buddy**, a continuous, passive background audio recorder and speech summarizer for Windows. This architecture is modeled after the **C4 software architecture model** to detail Context, Containers, Components, and Code interfaces, accompanied by a rigorous testing matrix designed for concurrent stream applications.
+This document provides a detailed system design specification for **Buddy**, a continuous, passive background audio recorder and speaker-attributed transcriber for Windows. This architecture is modeled after the **C4 software architecture model** (Context, Containers, Components, Code interfaces) along with its concurrent multi-threaded execution model.
 
 ---
 
@@ -18,26 +18,26 @@ The System Context diagram details how **Buddy** integrates with the user, local
 
 ```mermaid
 graph TD
-    User([User]) <-->|Speaks / Performs Daily Work| WindowsOS[Windows OS Audio System]
-    User <-->|Triggers Summary / Settings| BuddyApp[Buddy Application]
+    User([User]) <-->|Speaks / Participates in Calls| WindowsOS[Windows OS Audio Layer]
+    User <-->|Tray Menu Controls / Updates| BuddyApp[Buddy Application]
     
     subgraph System Boundary
         BuddyApp
     end
 
-    WindowsOS -->|Input/Output Audio Streams| BuddyApp
-    BuddyApp -->|Appends Text| LocalStore[(Local Markdown Files)]
-    BuddyApp <-->|Secure Multi-Modal Audio Transcriptions| Gemini[Google Gemini AI API]
-    LocalStore -->|Consolidated Log Feed| Gemini
-    Gemini -->|Generates Markdown Summary| LocalStore
+    WindowsOS -->|Mic & WASAPI Loopback Streams| BuddyApp
+    BuddyApp -->|Appends Timestamped Transcripts| LocalStore[(Local Markdown Logs)]
+    BuddyApp <-->|Stereo Speech-to-Text API| Gemini[Google Gemini 2.5 Flash / GCP Chirp 3]
+    BuddyApp <-->|Periodic Version Checks & Downloads| GitHub[GitHub Releases API]
 ```
 
 ### System Context Entities
-*   **User:** The primary operator. The user speaks naturally and participates in calls. They interact with Buddy only via the Windows System Tray menu to configure settings or generate summaries.
-*   **Windows OS Audio System:** The underlying Core Audio / WASAPI layer, serving both microphone capture devices (Input) and active system playback devices (Loopback Output).
-*   **Buddy Application:** The background software managing high-fidelity concurrent recording, transcription loop processing, and storage orchestration.
-*   **Local Markdown Files:** Local files stored in the User's `~/.buddy/` folder that act as the persistent transcript log and synthesized daily summaries.
-*   **Google Gemini AI API:** The remote AI model acting as the speech-to-text translator (for micro-buffers) and the daily summary synthesizer.
+*   **User:** Speaks through their physical microphone and listens to virtual meetings/speakers. Interacts with Buddy via the system tray icon for controls (Pause, Resume, Pause Until 8am, Updates, Open Transcripts).
+*   **Windows OS Audio Layer:** Core Audio / WASAPI layer providing hardware microphone input (Input) and active system audio loopback (Output).
+*   **Buddy Application:** Background process managing concurrent dual-stream audio capture, anti-aliased resampling, Voice Activity Detection, cloud transcription, and auto-updating.
+*   **Local Markdown Logs:** Files stored in `%USERPROFILE%\.buddy\transcripts\YYYY-MM-DD_raw.md`.
+*   **Google Gemini AI API / GCP Speech-to-Text:** Remote speech recognition services transcribing stereo audio chunks with speaker attribution tags (`[Me]` vs `[Others]`).
+*   **GitHub Releases API:** Remote version repository providing automated update discovery, asset download, and binary verification.
 
 ---
 
@@ -50,189 +50,180 @@ graph TB
     subgraph Client Workstation (Windows)
         subgraph Buddy App Process [Buddy Background Process]
             UI[Tray UI Container - PySide6]
-            Engine[Audio Core Container - Threaded WASAPI]
-            Client[AI Client Container - Gemini SDK]
+            Engine[Audio Core Container - Dual WASAPI Threads]
+            VAD[VAD Filter Container - RMS / ZCR Analysis]
+            Client[AI Transcriber Container - google-genai / GCP STT]
+            Updater[Auto-Updater Container - GitHub API & Worker]
         end
         
-        Disk[(User Home .buddy Store)]
+        Disk[(User Home ~/.buddy Store)]
     end
 
     subgraph Remote Services
-        Gemini[Google Gemini API]
+        Gemini[Google Gemini 2.5 Flash API]
+        GitHub[GitHub Releases API]
     end
 
     %% Interactions
-    UI -->|Launches & Monitors| Engine
-    Engine -->|Accumulates In-Memory WAV Bytes| Client
-    Client -->|Sends Micro-audio Buffers| Gemini
-    Gemini -->|Returns UTF-8 Text| Client
-    Client -->|Appends raw markdown log| Disk
-    UI -->|Reads daily raw logs| Client
-    Client -->|Sends entire raw log with summary prompt| Gemini
-    Gemini -->|Returns Daily Summary markdown| Client
-    Client -->|Writes final summary file| Disk
+    UI -->|Launches & Controls| Engine
+    Engine -->|Feeds Raw PCM Chunks| VAD
+    VAD -->|Active Speech WAV Bytes| Client
+    Client -->|Sends Stereo Audio| Gemini
+    Gemini -->|Returns Attributed Text| Client
+    Client -->|Thread-safe Markdown Append| Disk
+    Updater -->|Checks & Downloads New Versions| GitHub
+    Updater -->|Spawns Detached Swap Helper| Disk
 ```
 
 ### Container Responsibilities
-1.  **Tray UI Container (PySide6):** Manages the application lifecycle. Runs the main thread, renders system tray icons, binds context menus, displays Windows toast notifications, and spawns the audio recording background thread.
-2.  **Audio Core Container (Threaded WASAPI):** An isolated, high-priority thread that loops continuously. It captures dual WASAPI audio (mic + loopback), mixes down the samples, converts them to standard WAV byte streams, and periodically hands them over to the AI Client.
-3.  **AI Client Container (Gemini SDK / Keyring):** Manages credential retrieval from the Windows Credential Manager and coordinates API requests. It handles low-latency 30-second transcription requests and coordinates the end-of-day summary compilation.
-4.  **User Home .buddy Store:** A hidden, centralized directory (`~/.buddy`) acting as the application database. It stores `config.json` for credentials, `YYYY-MM-DD_raw.md` for live appending, and `YYYY-MM-DD_summary.md` for summaries.
+1.  **Tray UI Container (PySide6):** Manages the Qt event loop, renders dynamic procedural tray icons (Sleeping, Active, Paused), binds context menu actions, and displays native Windows toast notifications.
+2.  **Audio Core Container (Dual WASAPI Threads):** Two dedicated capture threads collecting samples from hardware microphone and system loopback simultaneously without blocking each other.
+3.  **VAD Filter Container (Voice Activity Detection):** Evaluates multi-channel RMS energy and Zero-Crossing Rate across 30ms frames, filtering out acoustic clicks, hums, and pure silence.
+4.  **AI Transcriber Container (`google-genai` / `google-cloud-speech`):** Converts standardized 16kHz stereo WAV buffers (Left=Me, Right=Others) into speaker-attributed transcript blocks.
+5.  **Auto-Updater Container (`requests` / PowerShell helper):** Checks GitHub Releases hourly, downloads new binaries with real-time progress, and executes atomic in-place binary swapping via detached PowerShell script.
+6.  **User Home `.buddy` Store:** Stores `config.json` and timestamped transcript logs in `%USERPROFILE%\.buddy\transcripts\`.
 
 ---
 
 ## 4. Level 3: Components (C3)
 
-The Component diagram breaks down the internal elements of the **Buddy App Process**, showing how the classes and threads communicate safely.
+The Component diagram breaks down the internal elements of the **Buddy App Process**.
 
 ```mermaid
 classDiagram
-    class BuddyTrayApp {
-        -Thread audio_thread
-        -TrayIcon tray_icon
-        +__init__()
-        +start_listening()
-        +pause_listening()
-        +on_generate_summary_request()
+    class TrayIconController {
+        -QSystemTrayIcon tray
+        -AudioStreamHandler audio_handler
+        -TranscriberService transcriber
+        -AutoUpdater updater
+        -QTimer _auto_resume_timer
+        -ThreadPoolExecutor executor
+        +set_status(state)
+        +on_toggle_listening()
+        +on_pause_until_8am()
+        +on_check_for_updates()
+        +on_exit()
     }
 
     class AudioStreamHandler {
-        -bool is_running
-        -Queue audio_queue
+        -bool _is_running
+        -bool _is_paused
+        -bool _is_speech_active
         -SoundcardMic loopback_device
         -PyAudioMic hardware_mic
-        +run()  -- Thread Loop
+        +start()
+        +pause()
+        +resume()
         +stop()
     }
 
     class AudioMixer {
-        +mix_channels(float_array mic, float_array speaker) float_array
-        +convert_to_wav_bytes(float_array samples) bytes
+        +resample_linear(pcm, orig_sr, target_sr)
+        +anti_alias_filter(pcm, orig_sr, target_sr)
+        +standardize_channel(pcm, orig_sr, target_sr)
+        +mix_and_standardize(mic_pcm, loopback_pcm)
+        +convert_to_wav_bytes(pcm, sample_rate)
+    }
+
+    class VoiceActivityDetector {
+        -float energy_threshold
+        -float zcr_threshold
+        -int min_speech_frames
+        +is_speech_present(pcm_data, sample_rate) bool
     }
 
     class TranscriberService {
-        -GeminiClient gemini_client
-        -FileAppender file_appender
-        +process_buffer_async(bytes wav_data)
-        +compile_daily_summary()
+        -Client client
+        -FileAppender appender
+        -VoiceActivityDetector vad
+        +transcribe_chunk(wav_bytes) str
+    }
+
+    class AutoUpdater {
+        -QTimer timer
+        -bool _is_updating
+        +start()
+        +check_for_updates_async(manual)
+        +apply_update_async(version_tag, download_url)
+        -_spawn_windows_restart_script(staged, current)
     }
 
     class FileAppender {
-        -str current_file_path
-        -Lock write_lock
-        +append_text(str text)
-        +read_raw_log() str
+        -Path directory
+        -Lock _lock
+        +append_transcription(text) Path
     }
 
     %% Relationships
-    BuddyTrayApp --> AudioStreamHandler : Spawns & Controls
-    AudioStreamHandler --> AudioMixer : Sends chunks for mixing
-    AudioStreamHandler --> TranscriberService : Pushes mixed WAV buffers
-    TranscriberService --> FileAppender : Appends transcribed text
-    BuddyTrayApp --> TranscriberService : Invokes daily summarization
+    TrayIconController --> AudioStreamHandler : Controls
+    TrayIconController --> TranscriberService : Submits chunks
+    TrayIconController --> AutoUpdater : Monitors & Triggers
+    AudioStreamHandler --> AudioMixer : Standardizes PCM
+    AudioStreamHandler --> VoiceActivityDetector : Live activity tracking
+    TranscriberService --> VoiceActivityDetector : Pure silence check
+    TranscriberService --> FileAppender : Appends text
 ```
 
 ### Thread Safety & Concurrency Model
-To prevent GUI freezing and audio buffer drops, Buddy runs a multi-threaded architecture:
-*   **Main GUI Thread:** PySide6 Event Loop. Handles system tray user interaction, clicks, setting changes, and Windows toast alerts.
-*   **Audio Recording Thread:** High-priority, background worker thread running a continuous `while` loop. It collects WASAPI frame blocks from both devices synchronously to prevent buffer underruns.
-*   **Transcription Worker Thread:** Spawns short-lived worker threads or uses QThreadPool to perform network HTTP requests to the Gemini API, ensuring transcription delays never interfere with the physical recording sample loops.
-*   **File Locking (Mutex):** The `FileAppender` holds a thread-safe `Lock` (mutex) around the append-only raw Markdown file to guarantee that simultaneous thread write operations never cause race conditions or log corruption.
+*   **Main GUI Thread (PySide6 Event Loop):** Handles system tray rendering, user clicks, smart pause timers, and toast notifications.
+*   **Mic Capture Thread & Loopback Capture Thread:** Independent worker threads reading WASAPI frames continuously to eliminate buffer underruns.
+*   **Threaded VAD & Standardizer:** Operates on in-memory numpy buffers with zero disk I/O.
+*   **Transcription Executor (`ThreadPoolExecutor`):** Asynchronously dispatches network HTTP requests to Gemini / GCP, ensuring physical recording is never blocked.
+*   **File Mutex (`FileAppender._lock`):** Thread-safe mutex around append operations to guarantee log integrity.
 
 ---
 
 ## 5. Level 4: Code Interfaces (C4)
 
-The raw audio mixing and continuous transcription-append loops are defined by the following abstract Python interfaces:
-
-### 5.1. Audio Stream Mixing Interface
+### 5.1. Dual-Channel Stereo Audio Mixer Interface
 ```python
 class AudioMixer:
     @staticmethod
-    def mix_channels(mic_samples: np.ndarray, speaker_samples: np.ndarray) -> np.ndarray:
+    def mix_and_standardize(
+        mic_pcm: np.ndarray,
+        loopback_pcm: np.ndarray,
+        mic_sr: int,
+        loopback_sr: int,
+        target_sr: int = 16000
+    ) -> np.ndarray:
         """
-        Pads and normalizes two audio signals to prevent clipping.
-        Args:
-            mic_samples (np.ndarray): Physical microphone audio frames (float32).
-            speaker_samples (np.ndarray): WASAPI loopback speaker audio frames (float32).
-        Returns:
-            np.ndarray: Mixed single-channel or dual-channel normalized float32 array.
+        Resamples both channels to target_sr and arranges into a 2-channel stereo array:
+        - Channel 0 (Left): Microphone ("Me")
+        - Channel 1 (Right): WASAPI Loopback ("Others")
         """
-        # Align lengths if mismatched due to different hardware capture rates
-        max_len = max(len(mic_samples), len(speaker_samples))
-        padded_mic = np.pad(mic_samples, (0, max_len - len(mic_samples)))
-        padded_spk = np.pad(speaker_samples, (0, max_len - len(speaker_samples)))
+        std_mic = AudioMixer.standardize_channel(mic_pcm, mic_sr, target_sr)
+        std_loop = AudioMixer.standardize_channel(loopback_pcm, loopback_sr, target_sr)
         
-        # Mix with standard normalization factor (0.5 to prevent digital clipping)
-        mixed = (padded_mic * 0.5) + (padded_spk * 0.5)
-        return mixed
+        max_len = max(len(std_mic), len(std_loop))
+        padded_mic = np.pad(std_mic, (0, max_len - len(std_mic)))
+        padded_loop = np.pad(std_loop, (0, max_len - len(std_loop)))
+        
+        stereo = np.column_stack((padded_mic, padded_loop)).astype(np.float32)
+        return stereo
 ```
 
-### 5.2. Transcription Append Interface
+### 5.2. Voice Activity Detection Interface
 ```python
-class FileAppender:
-    def __init__(self, target_directory: str):
-        self.directory = target_directory
-        self._lock = threading.Lock()
-
-    def append_transcription(self, text: str) -> None:
+class VoiceActivityDetector:
+    def is_speech_present(self, pcm_data: np.ndarray, sample_rate: int = 16000) -> bool:
         """
-        Appends a timestamped text block to the current day's raw markdown file safely.
+        Performs frame-by-frame energy and Zero Crossing Rate analysis across 30ms frames
+        on all audio channels to verify active human speech.
         """
-        date_str = datetime.now().strftime("%Y-%m-%d")
-        timestamp_str = datetime.now().strftime("%H:%M:%S")
-        file_path = os.path.join(self.directory, "transcripts", f"{date_str}_raw.md")
-
-        with self._lock:  # Ensure single-thread write-access
-            with open(file_path, "a", encoding="utf-8") as f:
-                f.write(f"\n### [{timestamp_str}]\n{text.strip()}\n")
+        # Evaluates RMS energy, ZCR distribution, and consecutive speech frame counts
+        ...
 ```
 
 ---
 
-## 6. Comprehensive Testing Matrix
+## 6. Comprehensive Verification Matrix
 
-Buddy is designed as an always-on utility. This requires a robust testing framework to ensure continuous background operations.
+Buddy includes an extensive automated test suite (`pytest`) covering 100% of core operational components:
 
-### 6.1. Unit Testing Suite (Mocked Hardware & Network)
-We use `pytest` and `unittest.mock` to assert internal module correctness:
-
-```python
-# test_audio_mixer.py
-import numpy as np
-from src.audio.mixer import AudioMixer
-
-def test_mix_channels_normalization():
-    # Arrange: Create two maximum amplitude signal arrays
-    mic = np.ones(1000, dtype=np.float32)
-    spk = np.ones(1000, dtype=np.float32)
-    
-    # Act: Mix channels
-    result = AudioMixer.mix_channels(mic, spk)
-    
-    # Assert: Mixed signal should remain <= 1.0 (no clipping)
-    assert np.max(result) <= 1.0
-    assert len(result) == 1000
-```
-
-### 6.2. Integration Testing (Thread Safety & Disk I/O)
-*   **Test Case I01: Concurrent Append Safety**
-    *   *Mechanism:* Spawn 10 simultaneous threads, each attempting to append 100 transcript blocks to `FileAppender` simultaneously.
-    *   *Assertion:* The resulting markdown file must contain exactly 1,000 blocks with perfect formatting, asserting that the thread `Lock` prevented file corruption or line overlaps.
-*   **Test Case I02: Sliding Window FIFO Queue**
-    *   *Mechanism:* Feed a steady stream of dummy audio buffers into the `AudioStreamHandler` queue.
-    *   *Assertion:* Validate that the buffer is consumed correctly, cleared from memory, and doesn't expand memory usage (verifying zero memory leak in background stream capture).
-
-### 6.3. Robustness & Robust Exception Testing (System Resiliency)
-*   **Test Case R01: API Network Disconnect & Backoff Retry**
-    *   *Simulation:* Simulate a loss of internet access mid-recording. Set the Gemini API connection client to raise a `ConnectionError`.
-    *   *Expected Resiliency:* The transcription queue should hold the current 30-second WAV bytes in memory and initiate an **Exponential Backoff and Retry** routine (retrying at 2s, 4s, 8s, up to 60s) rather than losing the segment or crashing. Once connectivity is restored, the buffered audio is processed chronologically.
-*   **Test Case R02: API Rate Limiting (HTTP 429)**
-    *   *Simulation:* Mock the Gemini API returning an HTTP 429 Resource Exhausted status code.
-    *   *Expected Resiliency:* The app catches the error, pauses outbound buffer dispatching, displays a subtle system tray tooltip warning the user of rate exhaustion, and automatically retries with a safe cooldown timer.
-*   **Test Case R03: Core Audio Device Loss**
-    *   *Simulation:* Force-disable the default recording speaker output device in Windows Device Manager while Buddy is actively recording.
-    *   *Expected Resiliency:* The `soundcard` loopback thread catches the device disconnection exception, logs it, stops loopback capture cleanly, continues to record solely from the microphone, and triggers a Windows native balloon alert: *"Speaker capture device was disconnected. Recording continues on microphone only."*
-*   **Test Case R04: Out-of-Disk-Space Exception**
-    *   *Simulation:* Run the `FileAppender` on a partition configured with 0 bytes available.
-    *   *Expected Resiliency:* Buddy handles the `OSError: [Errno 28] No space left on device` cleanly. It pauses the active recording loop, keeps the latest text in-memory, and notifies the user with a critical desktop warning: *"Buddy has run out of disk space. Transcriptions are paused."*
+*   **`tests/test_config.py`**: Configuration initialization, API key discovery (file, env, keyring), missing key exit handling.
+*   **`tests/test_mixer.py`**: Resampling algorithms, anti-aliased downsampling, stereo channel mapping, WAV byte formatting.
+*   **`tests/test_vad.py`**: Silence detection, human speech identification, short click rejection, multi-channel stereo analysis.
+*   **`tests/test_stream_handler.py`**: Dual-stream initialization, pause/resume synchronization, thread termination, speech activity tracking.
+*   **`tests/test_transcriber.py`**: File appender thread safety, Markdown formatting, Gemini multi-modal routing, silence skipping.
+*   **`tests/test_tray.py`**: Procedural icon drawing, status transitions, smart pause until 8am, manual resume timer cancellation, executor dispatching.
+*   **`tests/test_updater.py`**: Version comparison, automatic & manual update checking, download worker with progress reporting, detached PowerShell script generation.
