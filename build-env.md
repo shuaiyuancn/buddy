@@ -162,4 +162,4 @@ pyinstaller Buddy.spec --noconfirm
 ```
 Output executable is generated at `dist/Buddy.exe`.
 
-Pushing a git tag (`git tag v0.1.5 ; git push origin master --tags`) automatically triggers the GitHub Actions CI/CD workflow to build and release `Buddy.exe`.
+Pushing a git tag (`git tag v0.1.6 ; git push origin master --tags`) automatically triggers the GitHub Actions CI/CD workflow to build and release `Buddy.exe`.
