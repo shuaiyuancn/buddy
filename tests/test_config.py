@@ -109,3 +109,10 @@ def test_check_api_key_valid_from_keyring(clean_env):
         key = check_api_key_or_toast_and_exit()
         assert key == "keyring-stored-secret-key"
 
+def test_load_full_config_defaults():
+    from src.config import load_full_config
+    cfg = load_full_config()
+    assert cfg.get("GEMINI_MODEL") == "gemini-3.5-transcribe"
+    assert cfg.get("STT_PROVIDER") == "gemini"
+    assert cfg.get("AUTO_UPDATE") is True
+

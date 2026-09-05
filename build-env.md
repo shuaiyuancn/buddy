@@ -25,7 +25,7 @@ Ensure your Windows system meets these foundational prerequisites:
 | **`sounddevice`** | `>= 0.4.6` | Hardware microphone input capture. |
 | **`soundfile`** | `>= 0.12.1` | Formats sliding stereo audio chunks into in-memory WAV formats for the transcription API. |
 | **`scipy`** / **`numpy`** | `>= 1.11.0` | Digital signal processing: anti-aliasing Chebyshev filters and frame-based VAD analysis. |
-| **`google-genai`** | `>= 0.1.1` | Official modern Google GenAI SDK for Gemini 2.5 Flash transcription. |
+| **`google-genai`** | `>= 0.1.1` | Official modern Google GenAI SDK for Gemini 3.5 Transcribe & Gemini 2.5 Flash transcription. |
 | **`google-cloud-speech`**| `>= 2.25.0` | (Optional) Dynamic client bindings for GCP Speech-to-Text v2 API and Chirp 3 model. |
 | **`keyring`** | `>= 24.3.0` | Securely queries and writes credentials to the Windows Credential Manager. |
 | **`requests`** | `>= 2.31.0` | Hourly GitHub Releases checking and chunked binary update downloading. |
@@ -89,9 +89,9 @@ c:\workspace\buddy\
 │   │
 │   └── ai/                     # Speech-to-Text Integrations
 │       ├── __init__.py
-│       └── transcriber.py      # Dual-channel Gemini 2.5 Flash & GCP Chirp 3 transcriber
+│       └── transcriber.py      # Dual-channel Gemini 3.5 Transcribe & GCP Chirp 3 transcriber
 │
-├── tests/                      # Full Automated Pytest Suite (44 tests)
+├── tests/                      # Full Automated Pytest Suite (46 tests)
 ├── Buddy.spec                  # PyInstaller build specification
 ├── install.ps1                 # One-liner PowerShell installer script
 ├── requirements.txt            # Python requirements manifest
@@ -118,6 +118,7 @@ C:\Users\<Username>\.buddy\
 ```json
 {
     "GEMINI_API_KEY": "YOUR_GEMINI_API_KEY",
+    "GEMINI_MODEL": "gemini-3.5-transcribe",
     "STT_PROVIDER": "gemini",
     "GCP_PROJECT_ID": "",
     "GCP_REGION": "us",
@@ -128,7 +129,8 @@ C:\Users\<Username>\.buddy\
     "UPDATE_CHECK_INTERVAL_HOURS": 1
 }
 ```
-*   `"GEMINI_API_KEY"`: API key for Google Gemini 2.5 Flash transcription.
+*   `"GEMINI_API_KEY"`: API key for Google Gemini transcription.
+*   `"GEMINI_MODEL"`: Model used for Gemini transcription (default `"gemini-3.5-transcribe"`, with support for `"gemini-2.5-flash"`, `"gemini-3.7-flash"`, etc.).
 *   `"STT_PROVIDER"`: Set to `"gemini"` (default) or `"gcp"` for GCP Speech-to-Text v2.
 *   `"GCP_PROJECT_ID"`: Google Cloud Project ID (if using GCP STT).
 *   `"GCP_REGION"`: Regional endpoint (e.g. `"us"`).

@@ -53,6 +53,7 @@ def load_full_config():
     
     default_config = {
         "GEMINI_API_KEY": "",
+        "GEMINI_MODEL": "gemini-3.5-transcribe",
         "STT_PROVIDER": "gemini",
         "GCP_PROJECT_ID": "",
         "GCP_REGION": "us",

@@ -44,6 +44,7 @@ def test_main_initialization_pipeline(
         api_key="mocked-api-key",
         config_dict={
             "GEMINI_API_KEY": "mocked-api-key",
+            "GEMINI_MODEL": "gemini-3.5-transcribe",
             "STT_PROVIDER": "gemini",
             "GCP_PROJECT_ID": "",
             "GCP_REGION": "us",

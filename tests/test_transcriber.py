@@ -81,7 +81,7 @@ def test_transcribe_chunk_gemini_interaction(temp_transcript_dir):
     # Verify Gemini is called with the expected model and contents
     mock_client.models.generate_content.assert_called_once()
     call_kwargs = mock_client.models.generate_content.call_args[1]
-    assert call_kwargs["model"] == "gemini-2.5-flash"
+    assert call_kwargs["model"] == "gemini-3.5-transcribe"
     assert "Channel 1" in call_kwargs["contents"][0]
     assert "Me:" in call_kwargs["contents"][0]
     assert "Others:" in call_kwargs["contents"][0]
@@ -90,6 +90,29 @@ def test_transcribe_chunk_gemini_interaction(temp_transcript_dir):
     assert result == "Hello, this is a simulated transcription."
     raw_log = service.appender.read_raw_log()
     assert "Hello, this is a simulated transcription." in raw_log
+
+def test_transcribe_chunk_gemini_custom_model_override(temp_transcript_dir):
+    service = TranscriberService(
+        api_key="mock-api-key",
+        config_dict={"GEMINI_MODEL": "gemini-2.5-flash"}
+    )
+    service.appender = FileAppender(temp_transcript_dir)
+
+    mock_client = MagicMock()
+    mock_response = MagicMock()
+    mock_response.text = "Custom model transcription."
+    mock_client.models.generate_content.return_value = mock_response
+    service.client = mock_client
+
+    t = np.linspace(0, 1.0, 16000, endpoint=False)
+    tone = (np.sin(2 * np.pi * 440.0 * t) * 0.5).astype(np.float32)
+    from src.audio.mixer import AudioMixer
+    dummy_wav = AudioMixer.convert_to_wav_bytes(tone, sample_rate=16000)
+
+    result = service.transcribe_chunk(dummy_wav)
+    assert result == "Custom model transcription."
+    call_kwargs = mock_client.models.generate_content.call_args[1]
+    assert call_kwargs["model"] == "gemini-2.5-flash"
 
 @patch("google.cloud.speech_v2.SpeechClient")
 def test_transcribe_chunk_gcp_routing(mock_speech_client_class, temp_transcript_dir):

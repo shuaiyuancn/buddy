@@ -48,4 +48,9 @@ This file tracks the development progress and milestone achievements of **Buddy*
 - [x] **Task 14: Automated CI/CD & One-Liner Installer**
     - [x] GitHub Actions workflow building and releasing `Buddy.exe` on tag push.
     - [x] Windows PowerShell one-liner installer (`install.ps1`).
+- [x] **Task 15: Gemini 3.5 Transcribe Integration & Model Config**
+    - [x] Add configurable `"GEMINI_MODEL": "gemini-3.5-transcribe"` in `config.json` and `load_full_config()`.
+    - [x] Update `TranscriberService` to use dynamic Gemini model.
+    - [x] Add unit tests for default `gemini-3.5-transcribe` and custom override.
+    - [x] Update all repository documentation.
 

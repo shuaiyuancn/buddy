@@ -27,7 +27,7 @@ graph TD
 
     WindowsOS -->|Mic & WASAPI Loopback Streams| BuddyApp
     BuddyApp -->|Appends Timestamped Transcripts| LocalStore[(Local Markdown Logs)]
-    BuddyApp <-->|Stereo Speech-to-Text API| Gemini[Google Gemini 2.5 Flash / GCP Chirp 3]
+    BuddyApp <-->|Stereo Speech-to-Text API| Gemini[Google Gemini 3.5 Transcribe / GCP Chirp 3]
     BuddyApp <-->|Periodic Version Checks & Downloads| GitHub[GitHub Releases API]
 ```
 
@@ -36,7 +36,7 @@ graph TD
 *   **Windows OS Audio Layer:** Core Audio / WASAPI layer providing hardware microphone input (Input) and active system audio loopback (Output).
 *   **Buddy Application:** Background process managing concurrent dual-stream audio capture, anti-aliased resampling, Voice Activity Detection, cloud transcription, and auto-updating.
 *   **Local Markdown Logs:** Files stored in `%USERPROFILE%\.buddy\transcripts\YYYY-MM-DD_raw.md`.
-*   **Google Gemini AI API / GCP Speech-to-Text:** Remote speech recognition services transcribing stereo audio chunks with speaker attribution tags (`[Me]` vs `[Others]`).
+*   **Google Gemini AI API / GCP Speech-to-Text:** Remote speech recognition services transcribing stereo audio chunks with speaker attribution tags (`[Me]` vs `[Others]`). Configurable via `GEMINI_MODEL` (default `gemini-3.5-transcribe`).
 *   **GitHub Releases API:** Remote version repository providing automated update discovery, asset download, and binary verification.
 
 ---
@@ -60,7 +60,7 @@ graph TB
     end
 
     subgraph Remote Services
-        Gemini[Google Gemini 2.5 Flash API]
+        Gemini[Google Gemini 3.5 Transcribe API]
         GitHub[GitHub Releases API]
     end
 

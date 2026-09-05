@@ -1,6 +1,6 @@
 # Product Requirements Document (PRD)
 ## Project Name: Buddy
-**Version:** 1.5.0  
+**Version:** 1.6.0  
 **Status:** Implemented & Released  
 **Target Platform:** Windows 10/11 (x64)
 
@@ -12,7 +12,7 @@ For professionals juggling back-to-back virtual meetings, spontaneous brainstorm
 
 **Buddy** is a passive, always-on background audio transcriber for Windows 10 and 11. Operating silently in the system tray, it continuously listens to both the user's microphone ("Me") and system speaker loopback audio ("Others"), separating and attributing speaker voices automatically.
 
-Buddy records sliding audio buffers (30–60s), filters out silent buffers using high-performance Voice Activity Detection (VAD), transcribes active speech via Gemini 2.5 Flash (or GCP Speech-to-Text v2 / Chirp 3), and instantly appends timestamped entries to a local, human-readable **Markdown (`.md`)** raw transcript log.
+Buddy records sliding audio buffers (30–60s), filters out silent buffers using high-performance Voice Activity Detection (VAD), transcribes active speech via Gemini 3.5 Transcribe / Gemini 2.5 Flash (or GCP Speech-to-Text v2 / Chirp 3), and instantly appends timestamped entries to a local, human-readable **Markdown (`.md`)** raw transcript log.
 
 ---
 
@@ -27,6 +27,7 @@ Buddy records sliding audio buffers (30–60s), filters out silent buffers using
     *   Unified, synchronized background recording stream.
     *   Stereo standardization (16 kHz, 16-bit PCM WAV).
     *   Gemini multi-modal prompt instructs the model to tag speaker dialogue distinctly (e.g., `[Me]` vs `[Others]`).
+    *   Configurable Gemini model selection via `GEMINI_MODEL` in `config.json` (defaults to `"gemini-3.5-transcribe"`, with support for `"gemini-2.5-flash"` and `"gemini-3.7-flash"`).
 
 ### F02: Smart Voice Activity Detection (VAD) & Silence Filtering
 *   **Description:** Buddy checks both audio channels for genuine voice activity before dispatching network requests.

@@ -2,7 +2,7 @@
 
 > **Always-on, passive, windowless background audio transcriber with dual-channel speaker attribution for Windows 10/11.**
 
-Buddy runs silently in the system tray, capturing microphone input ("Me") and speaker loopback audio ("Others"), detecting speech via Voice Activity Detection (VAD), and transcribing speech in near real-time via Gemini 2.5 Flash / Google Cloud Speech-to-Text v2 (Chirp 3) into timestamped daily Markdown logs.
+Buddy runs silently in the system tray, capturing microphone input ("Me") and speaker loopback audio ("Others"), detecting speech via Voice Activity Detection (VAD), and transcribing speech in near real-time via Gemini 3.5 Transcribe / Google Cloud Speech-to-Text v2 (Chirp 3) into timestamped daily Markdown logs.
 
 ---
 
@@ -44,6 +44,7 @@ Configuration is stored in `%USERPROFILE%\.buddy\config.json`:
 ```json
 {
     "GEMINI_API_KEY": "YOUR_GEMINI_API_KEY",
+    "GEMINI_MODEL": "gemini-3.5-transcribe",
     "STT_PROVIDER": "gemini",
     "GCP_PROJECT_ID": "",
     "GCP_REGION": "us",
@@ -55,6 +56,9 @@ Configuration is stored in `%USERPROFILE%\.buddy\config.json`:
 }
 ```
 
+* **STT Models & Configuration**:
+  * `GEMINI_MODEL`: Model used for Gemini STT (defaults to `"gemini-3.5-transcribe"`, with support for `"gemini-2.5-flash"`, `"gemini-3.7-flash"`, etc.).
+  * `STT_PROVIDER`: Set to `"gemini"` (default) or `"gcp"` (for GCP Speech-to-Text Chirp 3).
 * **API Key Options**:
   * Put `GEMINI_API_KEY` in `%USERPROFILE%\.buddy\config.json`
   * Set `GEMINI_API_KEY` environment variable

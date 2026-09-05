@@ -78,6 +78,7 @@ class TranscriberService:
             
         self.config = config_dict or {}
         self.stt_provider = self.config.get("STT_PROVIDER", "gemini").lower()
+        self.gemini_model = self.config.get("GEMINI_MODEL", "gemini-3.5-transcribe")
         self.gcp_client = None
         self.vad = VoiceActivityDetector()
         
@@ -145,7 +146,7 @@ class TranscriberService:
 
     def _transcribe_gemini(self, wav_bytes: bytes) -> str:
         """
-        Sends dual-channel WAV audio bytes to Gemini 2.5 Flash for speaker-attributed verbatim speech-to-text.
+        Sends dual-channel WAV audio bytes to Gemini for speaker-attributed verbatim speech-to-text.
         """
         if not self.api_key:
             return "[Error: GEMINI_API_KEY environment variable is missing]"
@@ -171,7 +172,7 @@ class TranscriberService:
             )
             
             response = self.client.models.generate_content(
-                model="gemini-2.5-flash",
+                model=self.gemini_model,
                 contents=[
                     prompt,
                     types.Part.from_bytes(
