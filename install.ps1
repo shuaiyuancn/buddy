@@ -85,21 +85,33 @@ try {
     exit 1
 }
 
-# 5. Create Start Menu Shortcut & update User PATH
-Write-Host "[4/5] Creating Start Menu shortcut and registering PATH..." -ForegroundColor Yellow
+# 5. Create Start Menu & Startup Shortcuts & update User PATH
+Write-Host "[4/5] Creating Start Menu & Startup shortcuts and registering PATH..." -ForegroundColor Yellow
 try {
     $StartMenuDir = Join-Path $env:APPDATA "Microsoft\Windows\Start Menu\Programs"
+    $StartupDir = Join-Path $env:APPDATA "Microsoft\Windows\Start Menu\Programs\Startup"
     $ShortcutPath = Join-Path $StartMenuDir "Buddy.lnk"
+    $StartupShortcutPath = Join-Path $StartupDir "Buddy.lnk"
     
     $WshShell = New-Object -ComObject WScript.Shell
+
+    # Start Menu shortcut
     $Shortcut = $WshShell.CreateShortcut($ShortcutPath)
     $Shortcut.TargetPath = $TargetExe
     $Shortcut.WorkingDirectory = $InstallDir
-    $Shortcut.Description = "Buddy - Background Audio Transcriber & Daily Executive Summarizer"
+    $Shortcut.Description = "Buddy - Background Audio Transcriber"
     $Shortcut.Save()
-    Write-Host "      Created shortcut: $ShortcutPath" -ForegroundColor Green
+    Write-Host "      Created Start Menu shortcut: $ShortcutPath" -ForegroundColor Green
+
+    # Windows Startup shortcut (Auto-Start on Login)
+    $StartupShortcut = $WshShell.CreateShortcut($StartupShortcutPath)
+    $StartupShortcut.TargetPath = $TargetExe
+    $StartupShortcut.WorkingDirectory = $InstallDir
+    $StartupShortcut.Description = "Buddy - Background Audio Transcriber (Auto-Start)"
+    $StartupShortcut.Save()
+    Write-Host "      Created Startup shortcut (auto-start on login): $StartupShortcutPath" -ForegroundColor Green
 } catch {
-    Write-Warning "Could not create Start Menu shortcut: $_"
+    Write-Warning "Could not create shortcuts: $_"
 }
 
 # Add InstallDir to User PATH if missing
@@ -124,6 +136,7 @@ if (-not (Test-Path $UserBuddyConfigDir)) {
 if (-not (Test-Path $ConfigFile)) {
     $DefaultConfig = @{
         "GEMINI_API_KEY"              = ""
+        "GEMINI_MODEL"                = "gemini-3.5-transcribe"
         "STT_PROVIDER"                = "gemini"
         "GCP_PROJECT_ID"              = ""
         "GCP_REGION"                  = "us"
@@ -132,6 +145,7 @@ if (-not (Test-Path $ConfigFile)) {
         "GITHUB_REPO"                 = $Repo
         "AUTO_UPDATE"                 = $true
         "UPDATE_CHECK_INTERVAL_HOURS" = 1
+        "AUTO_START"                  = $true
     } | ConvertTo-Json -Depth 4
     Set-Content -Path $ConfigFile -Value $DefaultConfig -Encoding UTF8
     Write-Host "      Created default config template at $ConfigFile" -ForegroundColor Green

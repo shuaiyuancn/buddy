@@ -62,7 +62,15 @@ Buddy records sliding audio buffers (30–60s), filters out silent buffers using
     *   Hourly periodic background update checks via GitHub Releases API.
     *   Manual **Check for Updates...** tray action.
     *   Real-time download progress tracking with byte counts and percentage in the tray tooltip (`Buddy - Downloading update... 45% (37.4/83.0 MB)`).
-    *   Detached PowerShell restart worker for atomic replacement of `Buddy.exe` on Windows.
+    *   Hidden PowerShell restart worker for atomic replacement of `Buddy.exe` on Windows with transcript logging to `%TEMP%\buddy_updater.log`.
+
+### F06: Windows Login Auto-Start
+*   **Description:** Buddy can automatically launch upon Windows login so continuous listening is never interrupted between computer reboots.
+*   **Requirements:**
+    *   Creates/removes shortcut in the Windows Startup directory (`%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup\Buddy.lnk`).
+    *   Tray context menu contains a checkable `Start on Windows Login` option that reflects and toggles auto-start state.
+    *   Configurable in `%USERPROFILE%\.buddy\config.json` via `"AUTO_START": true`.
+    *   `install.ps1` sets up the Startup shortcut automatically during installation.
 
 ---
 
@@ -79,6 +87,7 @@ Buddy is designed to be 100% passive with **no main window interface**:
 *   `Resume / Pause Listening`
 *   `Pause Until 8:00 AM Tomorrow`
 *   `Open Transcripts Folder` (Opens `%USERPROFILE%\.buddy\transcripts\`)
+*   `Start on Windows Login` (Checkable, toggles automatic launch on Windows boot)
 *   `Check for Updates...` (Manually triggers GitHub release check & background download)
 *   `Exit`
 

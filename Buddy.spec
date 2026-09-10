@@ -19,6 +19,7 @@ a = Analysis(
         'packaging',
         'src.updater',
         'src.version',
+        'src.autostart',
     ],
     hookspath=[],
     hooksconfig={},

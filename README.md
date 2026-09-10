@@ -18,8 +18,9 @@ The installer will:
 1. Fetch the latest `Buddy.exe` release from GitHub.
 2. Install the binary to `%LOCALAPPDATA%\Buddy\`.
 3. Create a Start Menu shortcut (`Buddy`).
-4. Add `%LOCALAPPDATA%\Buddy\` to your user `PATH`.
-5. Launch Buddy in the background.
+4. Create a Windows Startup shortcut (`Buddy.lnk` in Startup folder) for auto-start on login.
+5. Add `%LOCALAPPDATA%\Buddy\` to your user `PATH`.
+6. Launch Buddy in the background.
 
 ---
 
@@ -33,6 +34,7 @@ The installer will:
   * **Pause Listening**: Instantly suspend or resume audio capture.
   * **Pause Until 8:00 AM Tomorrow**: Convenient scheduled pause for evening/night work, automatically resuming at 8:00 AM the next morning.
 * **Transcripts Access**: Click **Open Transcripts Folder** to view daily markdown logs saved in `%USERPROFILE%\.buddy\transcripts\`.
+* **Auto-Start on Login**: Toggle **Start on Windows Login** directly from the tray menu to automatically launch Buddy when you log in.
 * **Automatic Background Updates**: Buddy checks GitHub Releases hourly and updates seamlessly. You can also manually check via **Check for Updates...**.
 
 ---
@@ -52,12 +54,15 @@ Configuration is stored in `%USERPROFILE%\.buddy\config.json`:
     "GCP_LANGUAGES": ["zh-CN", "en-US"],
     "GITHUB_REPO": "shuaiyuancn/buddy",
     "AUTO_UPDATE": true,
-    "UPDATE_CHECK_INTERVAL_HOURS": 1
+    "UPDATE_CHECK_INTERVAL_HOURS": 1,
+    "AUTO_START": true
 }
 ```
 
 * **STT Models & Configuration**:
   * `GEMINI_MODEL`: Model used for Gemini STT (defaults to `"gemini-3.5-transcribe"`, with support for `"gemini-2.5-flash"`, `"gemini-3.7-flash"`, etc.).
+  * `AUTO_START`: Whether Buddy launches automatically when Windows starts (default `true`).
+
   * `STT_PROVIDER`: Set to `"gemini"` (default) or `"gcp"` (for GCP Speech-to-Text Chirp 3).
 * **API Key Options**:
   * Put `GEMINI_API_KEY` in `%USERPROFILE%\.buddy\config.json`

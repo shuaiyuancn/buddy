@@ -61,7 +61,8 @@ def load_full_config():
         "GCP_LANGUAGES": ["zh-CN", "en-US"],
         "GITHUB_REPO": "shuaiyuancn/buddy",
         "AUTO_UPDATE": True,
-        "UPDATE_CHECK_INTERVAL_HOURS": 1
+        "UPDATE_CHECK_INTERVAL_HOURS": 1,
+        "AUTO_START": True
     }
 
     if not CONFIG_FILE.exists():
@@ -82,6 +83,23 @@ def load_full_config():
     except Exception as e:
         print(f"[Warning] Failed to parse {CONFIG_FILE}: {e}", file=sys.stderr)
         return default_config
+
+
+def save_config_key(key: str, value) -> bool:
+    """
+    Updates or inserts a key-value pair in CONFIG_FILE.
+    Returns True if successfully saved, False otherwise.
+    """
+    try:
+        current_config = load_full_config()
+        current_config[key] = value
+        with open(CONFIG_FILE, "w", encoding="utf-8") as f:
+            json.dump(current_config, f, indent=4)
+        return True
+    except Exception as e:
+        print(f"[Warning] Failed to update {key} in {CONFIG_FILE}: {e}", file=sys.stderr)
+        return False
+
 
 def trigger_toast_and_exit(message: str):
     """

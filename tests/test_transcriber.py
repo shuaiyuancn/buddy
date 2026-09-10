@@ -114,6 +114,68 @@ def test_transcribe_chunk_gemini_custom_model_override(temp_transcript_dir):
     call_kwargs = mock_client.models.generate_content.call_args[1]
     assert call_kwargs["model"] == "gemini-2.5-flash"
 
+def test_transcribe_chunk_gemini_audio_transcription_part_me_attribution(temp_transcript_dir):
+    service = TranscriberService(
+        api_key="mock-api-key",
+        config_dict={"GEMINI_MODEL": "gemini-3.5-transcribe"}
+    )
+    service.appender = FileAppender(temp_transcript_dir)
+
+    mock_client = MagicMock()
+    mock_response = MagicMock()
+    mock_response.text = None
+    mock_part = MagicMock()
+    mock_part.text = None
+    mock_part.audio_transcription.text = "Discussing the architecture roadmap."
+    mock_candidate = MagicMock()
+    mock_candidate.content.parts = [mock_part]
+    mock_response.candidates = [mock_candidate]
+    mock_client.models.generate_content.return_value = mock_response
+    service.client = mock_client
+
+    # Stereo audio: Left channel has speech, Right channel is silent
+    t = np.linspace(0, 1.0, 16000, endpoint=False)
+    tone = (np.sin(2 * np.pi * 440.0 * t) * 0.5).astype(np.float32)
+    zeros = np.zeros_like(tone)
+    stereo = np.column_stack((tone, zeros))
+    from src.audio.mixer import AudioMixer
+    dummy_wav = AudioMixer.convert_to_wav_bytes(stereo, sample_rate=16000)
+
+    result = service.transcribe_chunk(dummy_wav)
+    assert result == "Me: Discussing the architecture roadmap."
+    assert "Me: Discussing the architecture roadmap." in service.appender.read_raw_log()
+
+def test_transcribe_chunk_gemini_audio_transcription_part_others_attribution(temp_transcript_dir):
+    service = TranscriberService(
+        api_key="mock-api-key",
+        config_dict={"GEMINI_MODEL": "gemini-3.5-transcribe"}
+    )
+    service.appender = FileAppender(temp_transcript_dir)
+
+    mock_client = MagicMock()
+    mock_response = MagicMock()
+    mock_response.text = None
+    mock_part = MagicMock()
+    mock_part.text = None
+    mock_part.audio_transcription.text = "Everything looks good on our end."
+    mock_candidate = MagicMock()
+    mock_candidate.content.parts = [mock_part]
+    mock_response.candidates = [mock_candidate]
+    mock_client.models.generate_content.return_value = mock_response
+    service.client = mock_client
+
+    # Stereo audio: Right channel has speech, Left channel is silent
+    t = np.linspace(0, 1.0, 16000, endpoint=False)
+    tone = (np.sin(2 * np.pi * 440.0 * t) * 0.5).astype(np.float32)
+    zeros = np.zeros_like(tone)
+    stereo = np.column_stack((zeros, tone))
+    from src.audio.mixer import AudioMixer
+    dummy_wav = AudioMixer.convert_to_wav_bytes(stereo, sample_rate=16000)
+
+    result = service.transcribe_chunk(dummy_wav)
+    assert result == "Others: Everything looks good on our end."
+    assert "Others: Everything looks good on our end." in service.appender.read_raw_log()
+
 @patch("google.cloud.speech_v2.SpeechClient")
 def test_transcribe_chunk_gcp_routing(mock_speech_client_class, temp_transcript_dir):
     # Setup mock SpeechClient and response

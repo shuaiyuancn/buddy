@@ -115,4 +115,16 @@ def test_load_full_config_defaults():
     assert cfg.get("GEMINI_MODEL") == "gemini-3.5-transcribe"
     assert cfg.get("STT_PROVIDER") == "gemini"
     assert cfg.get("AUTO_UPDATE") is True
+    assert cfg.get("AUTO_START") is True
+
+
+def test_save_config_key(clean_env):
+    from src.config import save_config_key, load_full_config
+    assert save_config_key("AUTO_START", False) is True
+    cfg = load_full_config()
+    assert cfg.get("AUTO_START") is False
+    assert save_config_key("AUTO_START", True) is True
+    cfg2 = load_full_config()
+    assert cfg2.get("AUTO_START") is True
+
 

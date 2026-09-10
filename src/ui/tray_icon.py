@@ -8,8 +8,9 @@ from pathlib import Path
 from PySide6.QtWidgets import QSystemTrayIcon, QMenu, QMessageBox
 from PySide6.QtGui import QIcon, QPixmap, QPainter, QColor, QPen
 from PySide6.QtCore import QObject, Slot, Qt, QTimer
-from src.config import TRANSCRIPTS_DIR, APP_VERSION
+from src.config import TRANSCRIPTS_DIR, APP_VERSION, save_config_key
 from src.updater import AutoUpdater
+from src.autostart import is_autostart_enabled, set_autostart_enabled
 
 class TrayIconController(QObject):
     """
@@ -190,6 +191,11 @@ class TrayIconController(QObject):
 
         self.menu.addSeparator()
 
+        self.autostart_action = self.menu.addAction("Start on Windows Login")
+        self.autostart_action.setCheckable(True)
+        self.autostart_action.setChecked(is_autostart_enabled())
+        self.autostart_action.toggled.connect(self.on_toggle_autostart)
+
         check_update_action = self.menu.addAction(f"Check for Updates... (v{APP_VERSION})")
         check_update_action.triggered.connect(self.on_check_for_updates)
 
@@ -197,6 +203,23 @@ class TrayIconController(QObject):
 
         exit_action = self.menu.addAction("Exit")
         exit_action.triggered.connect(self.on_exit)
+
+    @Slot(bool)
+    def on_toggle_autostart(self, checked: bool):
+        """
+        Toggles whether Buddy automatically launches on Windows user login.
+        """
+        success = set_autostart_enabled(checked)
+        if success:
+            save_config_key("AUTO_START", checked)
+            msg = "Buddy will start on Windows login." if checked else "Buddy will not start on Windows login."
+            self.tray.showMessage("Auto-Start Updated", msg, QSystemTrayIcon.MessageIcon.Information, 2000)
+        else:
+            self.autostart_action.blockSignals(True)
+            self.autostart_action.setChecked(not checked)
+            self.autostart_action.blockSignals(False)
+            self.tray.showMessage("Auto-Start Error", "Failed to update Windows startup shortcut.", QSystemTrayIcon.MessageIcon.Warning, 3000)
+
 
     @Slot()
     def on_toggle_listening(self):

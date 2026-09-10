@@ -170,3 +170,29 @@ def test_on_update_progress_updates_tooltip(qt_app):
     controller = TrayIconController(mock_audio, mock_transcriber)
     controller._on_update_progress(50 * 1024 * 1024, 100 * 1024 * 1024)
     assert "Downloading update... 50% (50.0/100.0 MB)" in controller.tray.toolTip()
+
+
+def test_autostart_menu_action_initialized_and_toggle(qt_app):
+    mock_audio = MagicMock()
+    mock_transcriber = MagicMock()
+
+    with patch("src.ui.tray_icon.is_autostart_enabled", return_value=True):
+        controller = TrayIconController(mock_audio, mock_transcriber)
+        assert controller.autostart_action.isCheckable() is True
+        assert controller.autostart_action.isChecked() is True
+
+    # Test toggling off
+    with patch("src.ui.tray_icon.set_autostart_enabled", return_value=True) as mock_set, \
+         patch("src.ui.tray_icon.save_config_key") as mock_save:
+        controller.on_toggle_autostart(False)
+        mock_set.assert_called_once_with(False)
+        mock_save.assert_called_once_with("AUTO_START", False)
+
+    # Test toggle failure reverts checkbox
+    with patch("src.ui.tray_icon.set_autostart_enabled", return_value=False), \
+         patch("src.ui.tray_icon.save_config_key") as mock_save_fail:
+        controller.autostart_action.setChecked(True)
+        controller.on_toggle_autostart(True)
+        assert controller.autostart_action.isChecked() is False
+        mock_save_fail.assert_not_called()
+

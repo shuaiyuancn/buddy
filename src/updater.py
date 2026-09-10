@@ -201,13 +201,17 @@ class AutoUpdater(QObject):
         """
         pid = os.getpid()
         dest_dir = os.path.dirname(os.path.abspath(current_exe))
+        log_file = os.path.join(tempfile.gettempdir(), "buddy_updater.log")
 
-        # Robust PowerShell updater script with retry loops, file unblocking, and timeout protection
+        # Robust PowerShell updater script with transcript logging, retry loops, and file unblocking
         ps_script = (
+            f"$logPath = '{log_file}'; "
+            f"Start-Transcript -Path $logPath -Force -ErrorAction SilentlyContinue; "
             f"$targetPid = {pid}; "
             f"$staged = '{staged_exe}'; "
             f"$dest = '{current_exe}'; "
             f"$workDir = '{dest_dir}'; "
+            f"Write-Host \"Buddy Updater started. Target PID: $targetPid, Destination: $dest\"; "
             f"$waitCount = 0; "
             f"while ((Get-Process -Id $targetPid -ErrorAction SilentlyContinue) -and ($waitCount -lt 150)) {{ "
             f"    Start-Sleep -Milliseconds 200; "
@@ -222,21 +226,28 @@ class AutoUpdater(QObject):
             f"    try {{ "
             f"        Move-Item -Path $staged -Destination $dest -Force -ErrorAction Stop; "
             f"        $moved = $true; "
+            f"        Write-Host 'Move-Item succeeded!'; "
             f"    }} catch {{ "
+            f"        Write-Host \"Move attempt failed ($retries retries left): $_\"; "
             f"        Start-Sleep -Milliseconds 500; "
             f"        $retries--; "
             f"    }} "
             f"}}; "
             f"if ($moved -and (Test-Path $dest)) {{ "
+            f"    Write-Host \"Launching updated application from $dest...\"; "
             f"    Start-Process -FilePath $dest -WorkingDirectory $workDir; "
-            f"}}"
+            f"}} else {{ "
+            f"    Write-Host \"Update failed: unable to replace $dest\"; "
+            f"}}; "
+            f"Stop-Transcript -ErrorAction SilentlyContinue; "
         )
 
         subprocess.Popen(
             ["powershell", "-ExecutionPolicy", "Bypass", "-WindowStyle", "Hidden", "-NoProfile", "-Command", ps_script],
-            creationflags=subprocess.CREATE_NO_WINDOW | subprocess.DETACHED_PROCESS if os.name == 'nt' else 0,
+            creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0,
             close_fds=True
         )
 
         # Force immediate OS-level process exit to release all file handles instantly
         os._exit(0)
+

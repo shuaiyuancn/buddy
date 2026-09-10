@@ -1,7 +1,8 @@
 import sys
 import signal
 from PySide6.QtWidgets import QApplication
-from src.config import check_api_key_or_toast_and_exit
+from src.config import check_api_key_or_toast_and_exit, load_full_config
+from src.autostart import ensure_autostart_state
 from src.audio.stream_handler import AudioStreamHandler
 from src.ai.transcriber import TranscriberService
 from src.ui.tray_icon import TrayIconController
@@ -10,9 +11,13 @@ def main():
     # 1. Enforce windowless API Key check. Aborts and fires Windows toast notification if missing.
     api_key = check_api_key_or_toast_and_exit()
 
-    from src.config import load_full_config
     config_dict = load_full_config()
     config_dict["GEMINI_API_KEY"] = api_key
+
+    # Ensure Windows login autostart matches configuration
+    autostart_enabled = config_dict.get("AUTO_START", True)
+    ensure_autostart_state(autostart_enabled)
+
 
     # 2. Initialize main Qt Application loop
     app = QApplication(sys.argv)

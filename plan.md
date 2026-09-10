@@ -53,4 +53,17 @@ This file tracks the development progress and milestone achievements of **Buddy*
     - [x] Update `TranscriberService` to use dynamic Gemini model.
     - [x] Add unit tests for default `gemini-3.5-transcribe` and custom override.
     - [x] Update all repository documentation.
+- [x] **Task 16: Auto-Updater Restart Fix & Windows Auto-Start on Login**
+    - [x] Fix PowerShell helper process spawning in `src/updater.py` (remove `DETACHED_PROCESS` to prevent PowerShell startup crash; add transcript logging to `%TEMP%\buddy_updater.log`).
+    - [x] Implement `src/autostart.py` for Windows Startup shortcut management.
+    - [x] Add `"AUTO_START": True` to `default_config` and `save_config_key` in `src/config.py`.
+    - [x] Add checkable "Start on Windows Login" menu item and signal handler in `src/ui/tray_icon.py`.
+    - [x] Synchronize autostart state on launch in `src/main.py`.
+- [x] **Task 17: Gemini 3.5 Transcribe Modality Support & Channel Speaker Attribution**
+    - [x] Support `part.audio_transcription.text` modality returned by Google GenAI specialized speech-to-text models.
+    - [x] Implement `detect_speaker_channel(wav_bytes)` in `TranscriberService` using dual-channel VAD analysis.
+    - [x] Automatically attribute `Me:` (Channel 1 - Mic) and `Others:` (Channel 2 - Loopback) when raw text without speaker formatting is returned.
+    - [x] Add unit tests in `tests/test_transcriber.py` for `audio_transcription` part extraction and speaker attribution.
+    - [x] End-to-end verification with live Gemini 3.5 Transcribe model generating Markdown entries.
+
 

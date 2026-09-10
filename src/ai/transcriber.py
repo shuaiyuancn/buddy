@@ -144,6 +144,33 @@ class TranscriberService:
         else:
             return self._transcribe_gemini(wav_bytes)
 
+    def detect_speaker_channel(self, wav_bytes: bytes) -> str:
+        """
+        Determines the active speaker based on channel audio energy/VAD:
+        - Left Channel (Channel 1): 'Me' (Microphone)
+        - Right Channel (Channel 2): 'Others' (WASAPI Loopback)
+        - Both or undetermined: ''
+        """
+        if not wav_bytes or len(wav_bytes) <= 44:
+            return ""
+        try:
+            with wave.open(io.BytesIO(wav_bytes), "rb") as wf:
+                n_channels = wf.getnchannels()
+                if n_channels < 2:
+                    return ""
+                frames = wf.readframes(wf.getnframes())
+                pcm_data = np.frombuffer(frames, dtype=np.int16).astype(np.float32) / 32768.0
+                pcm_data = pcm_data.reshape(-1, n_channels)
+                me_speaking = self.vad.is_speech_present(pcm_data[:, 0], sample_rate=16000)
+                others_speaking = self.vad.is_speech_present(pcm_data[:, 1], sample_rate=16000)
+                if me_speaking and not others_speaking:
+                    return "Me"
+                elif others_speaking and not me_speaking:
+                    return "Others"
+                return ""
+        except Exception:
+            return ""
+
     def _transcribe_gemini(self, wav_bytes: bytes) -> str:
         """
         Sends dual-channel WAV audio bytes to Gemini for speaker-attributed verbatim speech-to-text.
@@ -183,10 +210,36 @@ class TranscriberService:
             )
             
             try:
-                transcribed_text = response.text.strip() if response.text else ""
+                response_text = response.text.strip() if response.text else ""
             except Exception:
-                transcribed_text = ""
-            
+                response_text = ""
+
+            transcribed_text = ""
+            if response_text:
+                transcribed_text = response_text
+            elif getattr(response, "candidates", None):
+                parts_text = []
+                for candidate in response.candidates:
+                    content = getattr(candidate, "content", None)
+                    parts = getattr(content, "parts", None) if content else None
+                    if parts:
+                        for part in parts:
+                            p_text = getattr(part, "text", None)
+                            if p_text and p_text.strip():
+                                parts_text.append(p_text.strip())
+                            else:
+                                at = getattr(part, "audio_transcription", None)
+                                at_text = getattr(at, "text", None) if at else None
+                                if at_text and at_text.strip():
+                                    parts_text.append(at_text.strip())
+                if parts_text:
+                    raw_text = "\n".join(parts_text).strip()
+                    if not (raw_text.startswith("Me:") or raw_text.startswith("Others:") or raw_text.startswith("**[Me]")):
+                        speaker_tag = self.detect_speaker_channel(wav_bytes)
+                        if speaker_tag:
+                            raw_text = f"{speaker_tag}: {raw_text}"
+                    transcribed_text = raw_text
+
             # Log to markdown file
             if transcribed_text:
                 self.appender.append_transcription(transcribed_text)

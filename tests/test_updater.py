@@ -134,6 +134,7 @@ def test_download_and_swap_worker():
     assert completed_signals[0] == "0.2.0"
 
 def test_spawn_windows_restart_script():
+    import subprocess
     updater = AutoUpdater(current_version="0.1.0")
 
     with patch("subprocess.Popen") as mock_popen, patch("os._exit") as mock_exit:
@@ -144,8 +145,17 @@ def test_spawn_windows_restart_script():
         cmd = args[0]
         assert "powershell" in cmd[0]
         assert "Bypass" in cmd
+        assert "Start-Transcript" in cmd[-1]
+        assert "Stop-Transcript" in cmd[-1]
         assert "Move-Item" in cmd[-1]
         assert "Start-Process" in cmd[-1]
         assert "Unblock-File" in cmd[-1]
+        
+        # Verify creationflags uses CREATE_NO_WINDOW and strictly excludes DETACHED_PROCESS
+        if os.name == "nt":
+            assert kwargs.get("creationflags") == subprocess.CREATE_NO_WINDOW
+            assert not (kwargs.get("creationflags", 0) & subprocess.DETACHED_PROCESS)
+
         mock_exit.assert_called_once_with(0)
+
 
