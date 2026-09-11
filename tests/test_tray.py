@@ -25,6 +25,33 @@ def test_draw_tray_icon(qt_app):
         assert isinstance(icon, QIcon)
         assert not icon.isNull()
 
+def test_draw_tray_icon_paused_visibility(qt_app):
+    mock_audio = MagicMock()
+    mock_transcriber = MagicMock()
+    controller = TrayIconController(mock_audio, mock_transcriber)
+
+    paused_icon = controller._draw_tray_icon("paused")
+    pixmap = paused_icon.pixmap(32, 32)
+    image = pixmap.toImage()
+
+    # Verify amber presence (#F59E0B -> R: 245, G: 158, B: 11)
+    amber_pixels = 0
+    dark_bar_pixels = 0
+    for y in range(32):
+        for x in range(32):
+            color = image.pixelColor(x, y)
+            if color.alpha() > 0:
+                # Check for amber hue (strong red, medium green, low blue)
+                if color.red() > 200 and 120 <= color.green() <= 190 and color.blue() < 50:
+                    amber_pixels += 1
+                # Check for dark pause bar color (low RGB)
+                if color.red() < 40 and color.green() < 40 and color.blue() < 60:
+                    dark_bar_pixels += 1
+
+    assert amber_pixels > 50, f"Expected prominent amber badge pixels, got {amber_pixels}"
+    assert dark_bar_pixels >= 10, f"Expected distinct pause bar pixels, got {dark_bar_pixels}"
+
+
 def test_set_status_and_speech_activity_changed(qt_app):
     mock_audio = MagicMock()
     mock_audio._is_paused = False

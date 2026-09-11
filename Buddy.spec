@@ -9,7 +9,6 @@ a = Analysis(
     hiddenimports=[
         'google.genai',
         'google.genai.types',
-        'google.cloud.speech_v2',
         'keyring',
         'keyring.backends.Windows',
         'soundcard',

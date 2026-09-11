@@ -122,7 +122,7 @@ class TrayIconController(QObject):
         States:
         - 'sleeping': Muted slate dot with subtle outer ring.
         - 'active' (or True): Radiant cyan dot with acoustic capture rings.
-        - 'paused' (or False): Muted slate gray dot with dashed boundary.
+        - 'paused' (or False): High-visibility vibrant amber badge with dual pause bars.
         """
         if isinstance(state, bool):
             state = "active" if state else "paused"
@@ -150,15 +150,26 @@ class TrayIconController(QObject):
             painter.drawEllipse(6, 6, 20, 20)
 
         elif state == "paused":
-            # Slate gray dot with muted dashed ring
-            gray_color = QColor("#94A3B8")
-            painter.setBrush(gray_color)
-            painter.setPen(Qt.NoPen)
-            painter.drawEllipse(11, 11, 10, 10)
+            # High-visibility vibrant amber badge with dual pause bars
+            amber_color = QColor("#F59E0B")
+            bar_color = QColor("#0F172A")
             
+            # Outer warning halo / ring
             painter.setBrush(Qt.NoBrush)
-            painter.setPen(QPen(gray_color, 1.5, Qt.DashLine))
+            painter.setPen(QPen(QColor(245, 158, 11, 80), 1.5, Qt.SolidLine))
+            painter.drawEllipse(2, 2, 28, 28)
+            
+            # Solid amber circular badge
+            painter.setBrush(amber_color)
+            painter.setPen(Qt.NoPen)
             painter.drawEllipse(4, 4, 24, 24)
+            
+            # Dual vertical pause bars in contrasting dark slate
+            painter.setBrush(bar_color)
+            painter.setPen(Qt.NoPen)
+            painter.drawRoundedRect(10, 10, 4, 12, 1.5, 1.5)
+            painter.drawRoundedRect(18, 10, 4, 12, 1.5, 1.5)
+
 
         else:  # "sleeping" / default
             # Soft slate/indigo standby dot with muted sleep ring

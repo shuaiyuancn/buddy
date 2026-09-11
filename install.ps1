@@ -137,11 +137,6 @@ if (-not (Test-Path $ConfigFile)) {
     $DefaultConfig = @{
         "GEMINI_API_KEY"              = ""
         "GEMINI_MODEL"                = "gemini-3.5-transcribe"
-        "STT_PROVIDER"                = "gemini"
-        "GCP_PROJECT_ID"              = ""
-        "GCP_REGION"                  = "us"
-        "GCP_SERVICE_ACCOUNT_KEY_PATH" = ""
-        "GCP_LANGUAGES"               = @("zh-CN", "en-US")
         "GITHUB_REPO"                 = $Repo
         "AUTO_UPDATE"                 = $true
         "UPDATE_CHECK_INTERVAL_HOURS" = 1

@@ -113,7 +113,6 @@ def test_load_full_config_defaults():
     from src.config import load_full_config
     cfg = load_full_config()
     assert cfg.get("GEMINI_MODEL") == "gemini-3.5-transcribe"
-    assert cfg.get("STT_PROVIDER") == "gemini"
     assert cfg.get("AUTO_UPDATE") is True
     assert cfg.get("AUTO_START") is True
 

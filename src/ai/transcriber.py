@@ -63,9 +63,12 @@ class FileAppender:
                 return f.read()
 
 
+MODEL_NAME = "gemini-3.5-transcribe"
+
+
 class TranscriberService:
     """
-    Coordinates speech-to-text transcribing and end-of-day summary compilation via Gemini/GCP STT.
+    Coordinates speech-to-text transcribing via Gemini 3.5 Transcribe with native speaker diarization.
     """
     def __init__(self, api_key: str = None, config_dict: dict = None):
         self.api_key = api_key or os.environ.get("GEMINI_API_KEY")
@@ -77,41 +80,13 @@ class TranscriberService:
                 print(f"[Warning] Failed to initialize Gemini Client: {e}")
             
         self.config = config_dict or {}
-        self.stt_provider = self.config.get("STT_PROVIDER", "gemini").lower()
-        self.gemini_model = self.config.get("GEMINI_MODEL", "gemini-3.5-transcribe")
-        self.gcp_client = None
+        self.gemini_model = MODEL_NAME
         self.vad = VoiceActivityDetector()
-        
-        if self.stt_provider == "gcp":
-            self._init_gcp_client()
-
         self.appender = FileAppender()
-
-    def _init_gcp_client(self):
-        """
-        Thread-safe dynamic import and initialization of Google Cloud Speech Client.
-        """
-        try:
-            from google.cloud.speech_v2 import SpeechClient
-            from google.api_core.client_options import ClientOptions
-            
-            # Programmatically register local service account key path if specified
-            sa_path = self.config.get("GCP_SERVICE_ACCOUNT_KEY_PATH")
-            if sa_path:
-                os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = sa_path
-                
-            region = self.config.get("GCP_REGION", "us")
-            self.gcp_client = SpeechClient(
-                client_options=ClientOptions(
-                    api_endpoint=f"{region}-speech.googleapis.com"
-                )
-            )
-        except Exception as e:
-            print(f"[Warning] Failed to initialize Google Cloud Speech Client: {e}")
 
     def is_wav_silent(self, wav_bytes: bytes) -> bool:
         """
-        Evaluates whether a WAV audio buffer (Mono or Stereo) contains meaningful human speech.
+        Evaluates whether a WAV audio buffer contains meaningful human speech.
         Returns True if the buffer is silent/empty, False if speech is detected.
         """
         if not wav_bytes or len(wav_bytes) <= 44:
@@ -131,7 +106,7 @@ class TranscriberService:
 
     def transcribe_chunk(self, wav_bytes: bytes) -> str:
         """
-        Routes the transcription task to the configured speech-to-text provider.
+        Transcribes an audio chunk using Gemini 3.5 Transcribe.
         """
         if not wav_bytes:
             return ""
@@ -139,41 +114,143 @@ class TranscriberService:
         if self.is_wav_silent(wav_bytes):
             return ""
 
-        if self.stt_provider == "gcp":
-            return self._transcribe_gcp(wav_bytes)
-        else:
-            return self._transcribe_gemini(wav_bytes)
+        return self._transcribe_gemini(wav_bytes)
 
-    def detect_speaker_channel(self, wav_bytes: bytes) -> str:
+    def _attribute_segments(self, parts: list, wav_bytes: bytes) -> str:
         """
-        Determines the active speaker based on channel audio energy/VAD:
-        - Left Channel (Channel 1): 'Me' (Microphone)
-        - Right Channel (Channel 2): 'Others' (WASAPI Loopback)
-        - Both or undetermined: ''
+        Attributes diarized segments to speakers ('Me' vs 'Others') by inspecting
+        audio energy across stereo channels (Channel 0 = Mic, Channel 1 = Loopback):
+        - When loopback audio is present (online call):
+          - Speech segments on Channel 0 -> 'Me'
+          - Speech segments on Channel 1 -> 'Others' (or 'Others (spk:N)' if multiple remote speakers)
+        - When loopback audio is silent (in-person or phone in room):
+          - Distinct speakers are labeled 'Speaker 1', 'Speaker 2', etc.
         """
-        if not wav_bytes or len(wav_bytes) <= 44:
-            return ""
+        pcm_data = None
+        n_channels = 1
+        sample_rate = 16000
         try:
             with wave.open(io.BytesIO(wav_bytes), "rb") as wf:
                 n_channels = wf.getnchannels()
-                if n_channels < 2:
-                    return ""
+                sample_rate = wf.getframerate()
                 frames = wf.readframes(wf.getnframes())
                 pcm_data = np.frombuffer(frames, dtype=np.int16).astype(np.float32) / 32768.0
-                pcm_data = pcm_data.reshape(-1, n_channels)
-                me_speaking = self.vad.is_speech_present(pcm_data[:, 0], sample_rate=16000)
-                others_speaking = self.vad.is_speech_present(pcm_data[:, 1], sample_rate=16000)
-                if me_speaking and not others_speaking:
-                    return "Me"
-                elif others_speaking and not me_speaking:
-                    return "Others"
-                return ""
+                if n_channels > 1:
+                    pcm_data = pcm_data.reshape(-1, n_channels)
         except Exception:
+            pcm_data = None
+
+        # Extract structured segments from candidate parts
+        segments = []
+        for part in parts:
+            p_text = getattr(part, "text", None)
+            at = getattr(part, "audio_transcription", None)
+            at_text = getattr(at, "text", None) if at else None
+            text = (p_text or at_text or "").strip()
+            if not text:
+                continue
+
+            spk_label = getattr(at, "speaker_label", None) if at else None
+            words = getattr(at, "words", None) if at else None
+            start_sec = None
+            end_sec = None
+            if words and len(words) > 0:
+                try:
+                    s_off = getattr(words[0], "start_offset", "")
+                    e_off = getattr(words[-1], "end_offset", "")
+                    if s_off:
+                        start_sec = float(str(s_off).rstrip("s"))
+                    if e_off:
+                        end_sec = float(str(e_off).rstrip("s"))
+                except Exception:
+                    pass
+
+            segments.append({
+                "text": text,
+                "spk_label": spk_label or "spk:0",
+                "start_sec": start_sec,
+                "end_sec": end_sec
+            })
+
+        if not segments:
             return ""
+
+        if pcm_data is None or n_channels < 2:
+            return "\n".join(s["text"] for s in segments)
+
+        total_loop_rms = float(np.sqrt(np.mean(pcm_data[:, 1] ** 2)))
+        total_mic_rms = float(np.sqrt(np.mean(pcm_data[:, 0] ** 2)))
+        has_loopback = total_loop_rms >= 0.003
+
+        # Classify each segment's origin
+        annotated = []
+        remote_labels = set()
+        for seg in segments:
+            text = seg["text"]
+            start_sec = seg["start_sec"]
+            end_sec = seg["end_sec"]
+            spk_label = seg["spk_label"]
+
+            if not has_loopback:
+                is_remote = False
+            else:
+                if start_sec is not None and end_sec is not None:
+                    s_idx = max(0, int(start_sec * sample_rate))
+                    e_idx = min(len(pcm_data), int(end_sec * sample_rate))
+                    slice_pcm = pcm_data[s_idx:e_idx] if e_idx > s_idx else pcm_data
+                else:
+                    slice_pcm = pcm_data
+
+                mic_rms = float(np.sqrt(np.mean(slice_pcm[:, 0] ** 2)))
+                loop_rms = float(np.sqrt(np.mean(slice_pcm[:, 1] ** 2)))
+                if loop_rms > mic_rms * 1.1:
+                    is_remote = True
+                elif mic_rms > loop_rms * 1.1:
+                    is_remote = False
+                else:
+                    is_remote = total_loop_rms > total_mic_rms
+
+            if is_remote:
+                remote_labels.add(spk_label)
+            annotated.append((is_remote, spk_label, text))
+
+        multiple_remote = len(remote_labels) > 1
+        all_spk_labels = {a[1] for a in annotated}
+        multiple_room = len(all_spk_labels) > 1 and not has_loopback
+
+        lines = []
+        current_speaker = None
+        current_texts = []
+
+        for is_remote, spk_label, text in annotated:
+            if not has_loopback:
+                if multiple_room:
+                    spk_idx = sorted(list(all_spk_labels)).index(spk_label) + 1
+                    speaker = f"Speaker {spk_idx}"
+                else:
+                    speaker = "Me"
+            else:
+                if is_remote:
+                    speaker = f"Others ({spk_label})" if multiple_remote else "Others"
+                else:
+                    speaker = "Me"
+
+            if speaker != current_speaker:
+                if current_speaker and current_texts:
+                    lines.append(f"{current_speaker}: " + " ".join(current_texts))
+                current_speaker = speaker
+                current_texts = [text]
+            else:
+                current_texts.append(text)
+
+        if current_speaker and current_texts:
+            lines.append(f"{current_speaker}: " + " ".join(current_texts))
+
+        return "\n".join(lines)
 
     def _transcribe_gemini(self, wav_bytes: bytes) -> str:
         """
-        Sends dual-channel WAV audio bytes to Gemini for speaker-attributed verbatim speech-to-text.
+        Sends WAV audio bytes to Gemini 3.5 Transcribe with native speaker diarization.
         """
         if not self.api_key:
             return "[Error: GEMINI_API_KEY environment variable is missing]"
@@ -185,60 +262,60 @@ class TranscriberService:
                 return f"[Error: Failed to initialize Gemini Client: {str(e)}]"
 
         try:
-            prompt = (
-                "You are an expert speech-to-text transcriber for a dual-channel audio stream:\n"
-                "- Channel 1 (Left Channel): 'Me' (the local user's microphone)\n"
-                "- Channel 2 (Right Channel): 'Others' (remote meeting participants / system audio)\n\n"
-                "INSTRUCTIONS:\n"
-                "1. Transcribe the dialogue in strict chronological order.\n"
-                "2. Attribute each spoken phrase with the appropriate speaker label based on the audio channel:\n"
-                "   - 'Me: <spoken content>' for speech originating on Channel 1 (Left).\n"
-                "   - 'Others: <spoken content>' for speech originating on Channel 2 (Right).\n"
-                "3. If only one party is speaking, output only their attributed dialogue.\n"
-                "4. Output ONLY the attributed verbatim dialogue. Do not include introductory notes, timestamps, structural headers, or conversational commentary."
+            config = types.GenerateContentConfig(
+                audio_transcription_config=types.AudioTranscriptionConfig(
+                    diarization=True
+                )
             )
-            
+
             response = self.client.models.generate_content(
                 model=self.gemini_model,
                 contents=[
-                    prompt,
                     types.Part.from_bytes(
                         data=wav_bytes,
                         mime_type="audio/wav"
                     )
-                ]
+                ],
+                config=config
             )
-            
-            try:
-                response_text = response.text.strip() if response.text else ""
-            except Exception:
-                response_text = ""
 
-            transcribed_text = ""
-            if response_text:
-                transcribed_text = response_text
-            elif getattr(response, "candidates", None):
-                parts_text = []
+            # Extract parts from response
+            all_parts = []
+            if getattr(response, "candidates", None):
                 for candidate in response.candidates:
                     content = getattr(candidate, "content", None)
                     parts = getattr(content, "parts", None) if content else None
                     if parts:
-                        for part in parts:
-                            p_text = getattr(part, "text", None)
-                            if p_text and p_text.strip():
-                                parts_text.append(p_text.strip())
-                            else:
-                                at = getattr(part, "audio_transcription", None)
-                                at_text = getattr(at, "text", None) if at else None
-                                if at_text and at_text.strip():
-                                    parts_text.append(at_text.strip())
-                if parts_text:
-                    raw_text = "\n".join(parts_text).strip()
-                    if not (raw_text.startswith("Me:") or raw_text.startswith("Others:") or raw_text.startswith("**[Me]")):
-                        speaker_tag = self.detect_speaker_channel(wav_bytes)
-                        if speaker_tag:
-                            raw_text = f"{speaker_tag}: {raw_text}"
-                    transcribed_text = raw_text
+                        all_parts.extend(parts)
+
+            transcribed_text = ""
+            if all_parts:
+                transcribed_text = self._attribute_segments(all_parts, wav_bytes)
+
+            # Fallback to response.text if candidate parts did not produce text
+            if not transcribed_text:
+                try:
+                    response_text = response.text.strip() if response.text else ""
+                except Exception:
+                    response_text = ""
+
+                if response_text:
+                    if not (response_text.startswith("Me:") or response_text.startswith("Others:") or response_text.startswith("Speaker")):
+                        try:
+                            with wave.open(io.BytesIO(wav_bytes), "rb") as wf:
+                                if wf.getnchannels() >= 2:
+                                    frames = wf.readframes(wf.getnframes())
+                                    pcm = np.frombuffer(frames, dtype=np.int16).astype(np.float32) / 32768.0
+                                    pcm = pcm.reshape(-1, wf.getnchannels())
+                                    mic_rms = float(np.sqrt(np.mean(pcm[:, 0] ** 2)))
+                                    loop_rms = float(np.sqrt(np.mean(pcm[:, 1] ** 2)))
+                                    if loop_rms > mic_rms * 1.2:
+                                        response_text = f"Others: {response_text}"
+                                    elif mic_rms > loop_rms * 1.2:
+                                        response_text = f"Me: {response_text}"
+                        except Exception:
+                            pass
+                    transcribed_text = response_text
 
             # Log to markdown file
             if transcribed_text:
@@ -247,54 +324,5 @@ class TranscriberService:
             return transcribed_text
         except Exception as e:
             error_msg = f"[Transcription Error: {str(e)}]"
-            self.appender.append_transcription(error_msg)
-            return error_msg
-
-    def _transcribe_gcp(self, wav_bytes: bytes) -> str:
-        """
-        Sends raw WAV audio bytes to GCP Speech-to-Text V2 using the Chirp-3 model.
-        """
-        if not self.gcp_client:
-            self._init_gcp_client()
-            if not self.gcp_client:
-                return "[Error: Google Cloud Speech Client is not initialized]"
-
-        try:
-            from google.cloud.speech_v2.types import cloud_speech
-            
-            project_id = self.config.get("GCP_PROJECT_ID") or os.environ.get("GOOGLE_CLOUD_PROJECT")
-            if not project_id:
-                return "[Error: GCP_PROJECT_ID is missing from config]"
-                
-            region = self.config.get("GCP_REGION", "us")
-            languages = self.config.get("GCP_LANGUAGES", ["zh-CN", "en-US"])
-            
-            config = cloud_speech.RecognitionConfig(
-                auto_decoding_config=cloud_speech.AutoDetectDecodingConfig(),
-                language_codes=languages,
-                model="chirp_3",
-            )
-            
-            request = cloud_speech.RecognizeRequest(
-                recognizer=f"projects/{project_id}/locations/{region}/recognizers/_",
-                config=config,
-                content=wav_bytes,
-            )
-            
-            response = self.gcp_client.recognize(request=request)
-            
-            transcripts = []
-            for result in response.results:
-                if result.alternatives:
-                    transcripts.append(result.alternatives[0].transcript)
-            transcribed_text = " ".join(transcripts).strip()
-            
-            # Log to markdown file
-            if transcribed_text:
-                self.appender.append_transcription(transcribed_text)
-                
-            return transcribed_text
-        except Exception as e:
-            error_msg = f"[Transcription Error (GCP): {str(e)}]"
             self.appender.append_transcription(error_msg)
             return error_msg

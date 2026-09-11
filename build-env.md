@@ -25,8 +25,7 @@ Ensure your Windows system meets these foundational prerequisites:
 | **`sounddevice`** | `>= 0.4.6` | Hardware microphone input capture. |
 | **`soundfile`** | `>= 0.12.1` | Formats sliding stereo audio chunks into in-memory WAV formats for the transcription API. |
 | **`scipy`** / **`numpy`** | `>= 1.11.0` | Digital signal processing: anti-aliasing Chebyshev filters and frame-based VAD analysis. |
-| **`google-genai`** | `>= 0.1.1` | Official modern Google GenAI SDK for Gemini 3.5 Transcribe & Gemini 2.5 Flash transcription. |
-| **`google-cloud-speech`**| `>= 2.25.0` | (Optional) Dynamic client bindings for GCP Speech-to-Text v2 API and Chirp 3 model. |
+| **`google-genai`** | `>= 2.0.0` | Official modern Google GenAI SDK for Gemini 3.5 Transcribe with native speaker diarization. |
 | **`keyring`** | `>= 24.3.0` | Securely queries and writes credentials to the Windows Credential Manager. |
 | **`requests`** | `>= 2.31.0` | Hourly GitHub Releases checking and chunked binary update downloading. |
 | **`packaging`** | `>= 23.0` | Semantic version parsing and release comparison for the auto-updater. |
@@ -89,7 +88,7 @@ c:\workspace\buddy\
 │   │
 │   └── ai/                     # Speech-to-Text Integrations
 │       ├── __init__.py
-│       └── transcriber.py      # Dual-channel Gemini 3.5 Transcribe & GCP Chirp 3 transcriber
+│       └── transcriber.py      # Dual-channel Gemini 3.5 Transcribe with native diarization
 │
 ├── tests/                      # Full Automated Pytest Suite (46 tests)
 ├── Buddy.spec                  # PyInstaller build specification
@@ -119,26 +118,18 @@ C:\Users\<Username>\.buddy\
 {
     "GEMINI_API_KEY": "YOUR_GEMINI_API_KEY",
     "GEMINI_MODEL": "gemini-3.5-transcribe",
-    "STT_PROVIDER": "gemini",
-    "GCP_PROJECT_ID": "",
-    "GCP_REGION": "us",
-    "GCP_SERVICE_ACCOUNT_KEY_PATH": "",
-    "GCP_LANGUAGES": ["zh-CN", "en-US"],
     "GITHUB_REPO": "shuaiyuancn/buddy",
     "AUTO_UPDATE": true,
-    "UPDATE_CHECK_INTERVAL_HOURS": 1
+    "UPDATE_CHECK_INTERVAL_HOURS": 1,
+    "AUTO_START": true
 }
 ```
 *   `"GEMINI_API_KEY"`: API key for Google Gemini transcription.
-*   `"GEMINI_MODEL"`: Model used for Gemini transcription (default `"gemini-3.5-transcribe"`, with support for `"gemini-2.5-flash"`, `"gemini-3.7-flash"`, etc.).
-*   `"STT_PROVIDER"`: Set to `"gemini"` (default) or `"gcp"` for GCP Speech-to-Text v2.
-*   `"GCP_PROJECT_ID"`: Google Cloud Project ID (if using GCP STT).
-*   `"GCP_REGION"`: Regional endpoint (e.g. `"us"`).
-*   `"GCP_SERVICE_ACCOUNT_KEY_PATH"`: Absolute path to GCP service account JSON key file.
-*   `"GCP_LANGUAGES"`: Language codes for multi-lingual speech recognition (e.g., `["zh-CN", "en-US"]`).
+*   `"GEMINI_MODEL"`: Model used for Gemini transcription (default `"gemini-3.5-transcribe"`).
 *   `"GITHUB_REPO"`: GitHub repository (`"owner/repo"`) for checking releases and downloading updates.
 *   `"AUTO_UPDATE"`: Set to `true` to enable automatic background checks and downloads.
 *   `"UPDATE_CHECK_INTERVAL_HOURS"`: Interval in hours between background update checks (default `1`).
+*   `"AUTO_START"`: Whether Buddy automatically starts on Windows login (default `true`).
 
 ---
 

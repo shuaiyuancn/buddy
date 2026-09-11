@@ -54,11 +54,6 @@ def load_full_config():
     default_config = {
         "GEMINI_API_KEY": "",
         "GEMINI_MODEL": "gemini-3.5-transcribe",
-        "STT_PROVIDER": "gemini",
-        "GCP_PROJECT_ID": "",
-        "GCP_REGION": "us",
-        "GCP_SERVICE_ACCOUNT_KEY_PATH": "",
-        "GCP_LANGUAGES": ["zh-CN", "en-US"],
         "GITHUB_REPO": "shuaiyuancn/buddy",
         "AUTO_UPDATE": True,
         "UPDATE_CHECK_INTERVAL_HOURS": 1,
@@ -156,10 +151,6 @@ def check_api_key_or_toast_and_exit():
     Verifies that the GEMINI_API_KEY is configured.
     Checks config.json first, then environment variables, then the OS secure keyring.
     If missing/empty everywhere, fires a native Windows Toast notification and exits immediately.
-    
-    If STT_PROVIDER is "gcp", it also verifies GCP_PROJECT_ID is present, and
-    that either GCP_SERVICE_ACCOUNT_KEY_PATH is specified or GOOGLE_APPLICATION_CREDENTIALS
-    is present in the environment.
     """
     # 1. Load full config
     config = load_full_config()
@@ -176,18 +167,6 @@ def check_api_key_or_toast_and_exit():
     # Always verify GEMINI_API_KEY (needed for speech-to-text)
     if not api_key:
         trigger_toast_and_exit(f"GEMINI_API_KEY is missing! Enter your key in {CONFIG_FILE} and restart.")
-
-    # 4. If STT_PROVIDER is gcp, perform additional checks
-    stt_provider = config.get("STT_PROVIDER", "gemini").lower()
-    if stt_provider == "gcp":
-        project_id = config.get("GCP_PROJECT_ID", "") or os.environ.get("GOOGLE_CLOUD_PROJECT", "")
-        if not project_id:
-            trigger_toast_and_exit("GCP_PROJECT_ID is missing for GCP STT! Configure it in config.json.")
-
-        sa_path = config.get("GCP_SERVICE_ACCOUNT_KEY_PATH", "")
-        has_env_credentials = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS") is not None
-        if not sa_path and not has_env_credentials:
-            trigger_toast_and_exit("GCP credentials missing! Provide a service account key path or environment credentials.")
 
     return api_key
 

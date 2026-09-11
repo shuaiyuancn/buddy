@@ -59,11 +59,13 @@ This file tracks the development progress and milestone achievements of **Buddy*
     - [x] Add `"AUTO_START": True` to `default_config` and `save_config_key` in `src/config.py`.
     - [x] Add checkable "Start on Windows Login" menu item and signal handler in `src/ui/tray_icon.py`.
     - [x] Synchronize autostart state on launch in `src/main.py`.
-- [x] **Task 17: Gemini 3.5 Transcribe Modality Support & Channel Speaker Attribution**
-    - [x] Support `part.audio_transcription.text` modality returned by Google GenAI specialized speech-to-text models.
-    - [x] Implement `detect_speaker_channel(wav_bytes)` in `TranscriberService` using dual-channel VAD analysis.
-    - [x] Automatically attribute `Me:` (Channel 1 - Mic) and `Others:` (Channel 2 - Loopback) when raw text without speaker formatting is returned.
-    - [x] Add unit tests in `tests/test_transcriber.py` for `audio_transcription` part extraction and speaker attribution.
-    - [x] End-to-end verification with live Gemini 3.5 Transcribe model generating Markdown entries.
-
-
+- [x] **Task 18: Native Gemini 3.5 Speaker Diarization & Streamlined Model Engine**
+    - [x] Implement native speaker diarization via `AudioTranscriptionConfig(diarization=True)` in `gemini-3.5-transcribe`.
+    - [x] Attribute diarized segments to `Me:` and `Others:` (or distinct loopback speakers `Others (spk:N):`) using segment-level channel energy analysis.
+    - [x] Support in-person / room phone calls with distinct speaker attribution (`Speaker 1:`, `Speaker 2:`).
+    - [x] Remove legacy STT providers (GCP Speech-to-Text Chirp 3) and alternative model options to keep Buddy lean, clean, and focused.
+    - [x] Expand automated test suite (56 passing tests) with multi-speaker turn-by-turn verification.
+- [x] **Task 19: High-Visibility Paused Tray Icon**
+    - [x] Redesign paused icon from muted gray circle to vibrant amber badge (`#F59E0B`) with high-contrast dual pause bars (`❚❚`, `#0F172A`) and outer alert aura.
+    - [x] Add automated test `test_draw_tray_icon_paused_visibility` in `tests/test_tray.py` verifying color palette and pause bars.
+    - [x] Full regression test suite verified (57 passing tests).

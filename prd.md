@@ -12,7 +12,7 @@ For professionals juggling back-to-back virtual meetings, spontaneous brainstorm
 
 **Buddy** is a passive, always-on background audio transcriber for Windows 10 and 11. Operating silently in the system tray, it continuously listens to both the user's microphone ("Me") and system speaker loopback audio ("Others"), separating and attributing speaker voices automatically.
 
-Buddy records sliding audio buffers (30–60s), filters out silent buffers using high-performance Voice Activity Detection (VAD), transcribes active speech via Gemini 3.5 Transcribe / Gemini 2.5 Flash (or GCP Speech-to-Text v2 / Chirp 3), and instantly appends timestamped entries to a local, human-readable **Markdown (`.md`)** raw transcript log.
+Buddy records sliding audio buffers (30–60s), filters out silent buffers using high-performance Voice Activity Detection (VAD), transcribes active speech via Gemini 3.5 Transcribe with native speaker diarization, and instantly appends timestamped entries to a local, human-readable **Markdown (`.md`)** raw transcript log.
 
 ---
 
@@ -108,7 +108,7 @@ sequenceDiagram
     participant Loop as WASAPI Loopback (Others)
     participant App as Buddy Background Engine
     participant VAD as Voice Activity Detector
-    participant API as Gemini 2.5 Flash / GCP Chirp 3
+    participant API as Gemini 3.5 Transcribe (Diarized)
     participant Log as YYYY-MM-DD_raw.md
 
     User->>App: Start App (System Tray)

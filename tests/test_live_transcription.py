@@ -46,7 +46,7 @@ def test_live_gemini_transcription():
     assert isinstance(wav_bytes, bytes)
     assert len(wav_bytes) > 0
     
-    print("[Live Test] Dispatching 1-second silent WAV chunk to Gemini API (gemini-2.5-flash)...")
+    print("[Live Test] Dispatching 1-second silent WAV chunk to Gemini API (gemini-3.5-transcribe)...")
     result = service.transcribe_chunk(wav_bytes)
     
     print(f"[Live Test] API returned: '{result}'")

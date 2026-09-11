@@ -27,7 +27,7 @@ graph TD
 
     WindowsOS -->|Mic & WASAPI Loopback Streams| BuddyApp
     BuddyApp -->|Appends Timestamped Transcripts| LocalStore[(Local Markdown Logs)]
-    BuddyApp <-->|Stereo Speech-to-Text API| Gemini[Google Gemini 3.5 Transcribe / GCP Chirp 3]
+    BuddyApp <-->|Stereo Speech-to-Text API| Gemini[Google Gemini 3.5 Transcribe (Diarized)]
     BuddyApp <-->|Periodic Version Checks & Downloads| GitHub[GitHub Releases API]
 ```
 
@@ -36,7 +36,7 @@ graph TD
 *   **Windows OS Audio Layer:** Core Audio / WASAPI layer providing hardware microphone input (Input) and active system audio loopback (Output).
 *   **Buddy Application:** Background process managing concurrent dual-stream audio capture, anti-aliased resampling, Voice Activity Detection, cloud transcription, and auto-updating.
 *   **Local Markdown Logs:** Files stored in `%USERPROFILE%\.buddy\transcripts\YYYY-MM-DD_raw.md`.
-*   **Google Gemini AI API / GCP Speech-to-Text:** Remote speech recognition services transcribing stereo audio chunks with speaker attribution tags (`[Me]` vs `[Others]`). Configurable via `GEMINI_MODEL` (default `gemini-3.5-transcribe`).
+*   **Google Gemini AI API:** Remote speech recognition service transcribing stereo audio chunks with native speaker diarization and channel energy attribution (`Me:` vs `Others:`). Powered exclusively by `gemini-3.5-transcribe`.
 *   **GitHub Releases API:** Remote version repository providing automated update discovery, asset download, and binary verification.
 
 ---
@@ -52,7 +52,7 @@ graph TB
             UI[Tray UI Container - PySide6]
             Engine[Audio Core Container - Dual WASAPI Threads]
             VAD[VAD Filter Container - RMS / ZCR Analysis]
-            Client[AI Transcriber Container - google-genai / GCP STT]
+            Client[AI Transcriber Container - google-genai]
             Updater[Auto-Updater Container - GitHub API & Worker]
         end
         
@@ -168,7 +168,7 @@ classDiagram
 *   **Main GUI Thread (PySide6 Event Loop):** Handles system tray rendering, user clicks, smart pause timers, and toast notifications.
 *   **Mic Capture Thread & Loopback Capture Thread:** Independent worker threads reading WASAPI frames continuously to eliminate buffer underruns.
 *   **Threaded VAD & Standardizer:** Operates on in-memory numpy buffers with zero disk I/O.
-*   **Transcription Executor (`ThreadPoolExecutor`):** Asynchronously dispatches network HTTP requests to Gemini / GCP, ensuring physical recording is never blocked.
+*   **Transcription Executor (`ThreadPoolExecutor`):** Asynchronously dispatches network HTTP requests to Gemini, ensuring physical recording is never blocked.
 *   **File Mutex (`FileAppender._lock`):** Thread-safe mutex around append operations to guarantee log integrity.
 
 ---
