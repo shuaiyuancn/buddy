@@ -326,3 +326,132 @@ class TranscriberService:
             error_msg = f"[Transcription Error: {str(e)}]"
             self.appender.append_transcription(error_msg)
             return error_msg
+
+    def transcribe_dictation(self, wav_bytes: bytes) -> str:
+        """
+        Transcribes voice dictation audio via Gemini without multi-speaker diarization prefixes.
+        Returns the raw transcribed speech text.
+        """
+        if not wav_bytes:
+            return ""
+
+        if self.is_wav_silent(wav_bytes):
+            return ""
+
+        if not self.api_key:
+            return ""
+
+        if not self.client:
+            try:
+                self.client = genai.Client(api_key=self.api_key)
+            except Exception as e:
+                print(f"[Warning] Failed to initialize Gemini Client: {e}")
+                return ""
+
+        try:
+            response = self.client.models.generate_content(
+                model=self.gemini_model,
+                contents=[
+                    types.Part.from_bytes(
+                        data=wav_bytes,
+                        mime_type="audio/wav"
+                    )
+                ]
+            )
+
+            raw_text = ""
+            if getattr(response, "text", None):
+                raw_text = response.text.strip()
+            elif getattr(response, "candidates", None):
+                for candidate in response.candidates:
+                    content = getattr(candidate, "content", None)
+                    parts = getattr(content, "parts", None) if content else None
+                    if parts:
+                        for part in parts:
+                            p_text = getattr(part, "text", None)
+                            if p_text:
+                                raw_text += p_text + " "
+                raw_text = raw_text.strip()
+
+            # Clean speaker labels if model included any like "Me: ", "Speaker 1: ", "Others: "
+            cleaned_lines = []
+            for line in raw_text.splitlines():
+                line = line.strip()
+                if line.startswith("Me:"):
+                    line = line[3:].strip()
+                elif line.startswith("Others:"):
+                    line = line[7:].strip()
+                elif line.startswith("Speaker ") and ":" in line[:15]:
+                    line = line.split(":", 1)[1].strip()
+                if line:
+                    cleaned_lines.append(line)
+
+            final_text = "\n".join(cleaned_lines)
+            return final_text
+        except Exception as e:
+            print(f"[Warning] Dictation transcription error: {e}")
+            return ""
+
+    def optimize_dictation(self, raw_text: str) -> str:
+        """
+        Optimizes dictation text for proper formatting, punctuation, capitalization, and fluency.
+        Removes speech disfluencies and verbal fillers (um, uh, like) while strictly preserving meaning.
+        Falls back to raw_text if an error occurs.
+        """
+        cleaned = raw_text.strip() if raw_text else ""
+        if not cleaned:
+            return ""
+
+        if not self.api_key:
+            return cleaned
+
+        if not self.client:
+            try:
+                self.client = genai.Client(api_key=self.api_key)
+            except Exception:
+                return cleaned
+
+        prompt = (
+            "You are an expert voice dictation assistant. "
+            "The following text was transcribed from spoken voice dictation. "
+            "Optimize it for formatting, grammar, punctuation, and fluency:\n"
+            "- Fix spelling, capitalization, and punctuation.\n"
+            "- Smooth out awkward speech patterns and remove verbal filler words (e.g., 'um', 'uh', 'you know', 'like').\n"
+            "- Format lists, numbers, or paragraph breaks if appropriate.\n"
+            "- Strictly preserve the speaker's original meaning, tone, and language (do not translate unless asked).\n"
+            "- Return ONLY the final polished text with no surrounding quotes, markdown code fences, conversational preamble, or explanation.\n\n"
+            f"Raw dictation:\n{cleaned}"
+        )
+
+        try:
+            optimizer_model = self.config.get("DICTATION_OPTIMIZER_MODEL", "gemini-2.5-flash")
+            response = self.client.models.generate_content(
+                model=optimizer_model,
+                contents=prompt
+            )
+
+            result_text = ""
+            if getattr(response, "text", None):
+                result_text = response.text.strip()
+            elif getattr(response, "candidates", None):
+                for candidate in response.candidates:
+                    content = getattr(candidate, "content", None)
+                    parts = getattr(content, "parts", None) if content else None
+                    if parts:
+                        for part in parts:
+                            p_text = getattr(part, "text", None)
+                            if p_text:
+                                result_text += p_text
+                result_text = result_text.strip()
+
+            # Strip any accidental wrapping markdown code fences ```
+            if result_text.startswith("```") and result_text.endswith("```"):
+                lines = result_text.splitlines()
+                if len(lines) >= 2:
+                    result_text = "\n".join(lines[1:-1]).strip()
+
+            return result_text if result_text else cleaned
+        except Exception as e:
+            print(f"[Warning] Dictation optimization failed, falling back to raw: {e}")
+            return cleaned
+

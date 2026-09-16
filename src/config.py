@@ -12,6 +12,7 @@ USER_BUDDY_DIR = Path(os.environ.get("USERPROFILE", "C:\\")) / ".buddy"
 TRANSCRIPTS_DIR = USER_BUDDY_DIR / "transcripts"
 SUMMARIES_DIR = USER_BUDDY_DIR / "summaries"
 CONFIG_FILE = USER_BUDDY_DIR / "config.json"
+RECENT_TRANSCRIPTS_FILE = USER_BUDDY_DIR / "recent_transcripts.json"
 APP_VERSION = __version__
 
 def initialize_directories():
@@ -57,7 +58,8 @@ def load_full_config():
         "GITHUB_REPO": "shuaiyuancn/buddy",
         "AUTO_UPDATE": True,
         "UPDATE_CHECK_INTERVAL_HOURS": 1,
-        "AUTO_START": True
+        "AUTO_START": True,
+        "DICTATION_HOTKEY": "right_alt"
     }
 
     if not CONFIG_FILE.exists():

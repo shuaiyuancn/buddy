@@ -35,7 +35,8 @@ def main():
     print("[Buddy] Constructing System Tray Interface...")
     tray_controller = TrayIconController(
         audio_handler=audio_handler,
-        transcriber_service=transcriber
+        transcriber_service=transcriber,
+        config_dict=config_dict
     )
 
     # 4. Bind signal interrupt handlers to exit cleanly from CLI commands (Ctrl+C)

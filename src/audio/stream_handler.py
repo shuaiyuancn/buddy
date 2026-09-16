@@ -27,6 +27,9 @@ class AudioStreamHandler(QThread):
 
         self._is_running = False
         self._is_paused = False
+        self._is_dictating = False
+        self._dictation_buffer = []
+        self._dictation_lock = threading.Lock()
         self._is_speech_active = False
         self._silence_hangover_sec = 3
         self._recent_speech_countdown = 0
@@ -84,6 +87,16 @@ class AudioStreamHandler(QThread):
             if len(mic_data) == 0 and len(spk_data) == 0:
                 mic_data = np.zeros(self.target_sr, dtype=np.float32)
                 spk_data = np.zeros(48000, dtype=np.float32)  # assuming 48k default for speaker
+
+            # If in dictation mode, accumulate microphone chunks into dictation buffer and skip normal aggregation
+            with self._dictation_lock:
+                is_dictating = self._is_dictating
+
+            if is_dictating:
+                if len(mic_data) > 0:
+                    with self._dictation_lock:
+                        self._dictation_buffer.append(mic_data)
+                continue
 
             # Mix down and resample to 16kHz mono
             mixed_chunk = AudioMixer.mix_and_standardize(
@@ -157,6 +170,39 @@ class AudioStreamHandler(QThread):
             self.speaker_queue.get_nowait()
             
         self._is_paused = False
+
+    def start_dictation(self):
+        """
+        Enters dictation mode, turning off normal sliding-window recording and routing
+        active microphone audio to a dedicated dictation buffer.
+        """
+        with self._dictation_lock:
+            self._is_dictating = True
+            self._dictation_buffer = []
+
+    def stop_dictation(self) -> bytes:
+        """
+        Exits dictation mode, drains remaining microphone samples, converts the accumulated
+        audio into standardized 16kHz mono WAV bytes, and resumes normal recording.
+        """
+        with self._dictation_lock:
+            self._is_dictating = False
+            # Drain any pending microphone chunks immediately
+            while not self.mic_queue.empty():
+                try:
+                    chunk = self.mic_queue.get_nowait()
+                    if len(chunk) > 0:
+                        self._dictation_buffer.append(chunk)
+                except queue.Empty:
+                    break
+
+            if not self._dictation_buffer:
+                return b""
+
+            recorded_samples = np.concatenate(self._dictation_buffer)
+            self._dictation_buffer = []
+
+        return AudioMixer.convert_to_wav_bytes(recorded_samples, sample_rate=self.target_sr)
 
     def _record_microphone(self):
         """

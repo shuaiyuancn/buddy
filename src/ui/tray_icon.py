@@ -6,28 +6,41 @@ import webbrowser
 from datetime import datetime, timedelta
 from pathlib import Path
 from PySide6.QtWidgets import QSystemTrayIcon, QMenu, QMessageBox
-from PySide6.QtGui import QIcon, QPixmap, QPainter, QColor, QPen
-from PySide6.QtCore import QObject, Slot, Qt, QTimer
+from PySide6.QtGui import QIcon, QPixmap, QPainter, QColor, QPen, QGuiApplication
+from PySide6.QtCore import QObject, Slot, Qt, QTimer, Signal
 from src.config import TRANSCRIPTS_DIR, APP_VERSION, save_config_key
 from src.updater import AutoUpdater
 from src.autostart import is_autostart_enabled, set_autostart_enabled
+from src.ui.recent_transcripts import RecentTranscriptsManager
+from src.ui.hotkey import GlobalHotkeyListener
+from src.ui.text_injector import TextInjector
 
 class TrayIconController(QObject):
     """
     Coordinates System Tray GUI interactions, context menus, toast notifications,
-    and real-time visual status updates (Sleeping, Active, Paused).
+    and real-time visual status updates (Sleeping, Active, Paused, Dictating).
     """
-    def __init__(self, audio_handler, transcriber_service, updater: AutoUpdater = None):
+    dictation_completed = Signal(str)
+
+    def __init__(self, audio_handler, transcriber_service, updater: AutoUpdater = None, config_dict: dict = None):
         super().__init__()
         self.audio_handler = audio_handler
         self.transcriber = transcriber_service
+        self.config_dict = config_dict or getattr(transcriber_service, "config", {})
         self.executor = concurrent.futures.ThreadPoolExecutor(max_workers=2, thread_name_prefix="buddy_worker")
         self.updater = updater or AutoUpdater(parent=self)
+        self.recent_transcripts = RecentTranscriptsManager()
 
         # Scheduled auto-resume timer for "Pause until 8am" feature
         self._auto_resume_timer = QTimer(self)
         self._auto_resume_timer.setSingleShot(True)
         self._auto_resume_timer.timeout.connect(self._on_auto_resume_timer_fired)
+
+        # Global Hotkey Listener for Dictation
+        hotkey_str = self.config_dict.get("DICTATION_HOTKEY", "right_alt") if isinstance(self.config_dict, dict) else "right_alt"
+        self.hotkey_listener = GlobalHotkeyListener(hotkey=hotkey_str, parent=self)
+        self.hotkey_listener.hotkey_triggered.connect(self.on_dictation_hotkey)
+        self.dictation_completed.connect(self._on_dictation_completed)
 
         # Create main System Tray instance
         self.tray = QSystemTrayIcon(self)
@@ -37,6 +50,7 @@ class TrayIconController(QObject):
             "sleeping": self._draw_tray_icon("sleeping"),
             "active": self._draw_tray_icon("active"),
             "paused": self._draw_tray_icon("paused"),
+            "dictating": self._draw_tray_icon("dictating"),
         }
         # Backward compatibility properties for tests
         self.active_icon = self.icons["active"]
@@ -72,6 +86,8 @@ class TrayIconController(QObject):
         """
         self.tray.show()
         self.updater.start()
+        if hasattr(self, "hotkey_listener") and self.hotkey_listener is not None:
+            self.hotkey_listener.start()
         self.tray.showMessage(
             "Buddy Active",
             "Buddy is running silently in the background and listening.",
@@ -82,9 +98,10 @@ class TrayIconController(QObject):
     def set_status(self, state: str):
         """
         Updates the tray icon and tooltip based on operational status.
-        Supported states: 'sleeping', 'active', 'paused'.
+        Supported states: 'sleeping', 'active', 'paused', 'dictating'.
         """
-        if getattr(self.audio_handler, "_is_paused", False) and state != "paused":
+        is_paused = getattr(self.audio_handler, "_is_paused", False) is True
+        if state != "dictating" and is_paused and state != "paused":
             state = "paused"
 
         if self._current_state == state:
@@ -104,6 +121,7 @@ class TrayIconController(QObject):
             "sleeping": "Buddy - Sleeping (Waiting for audio)",
             "active": "Buddy - Recording & Transcribing",
             "paused": paused_tooltip,
+            "dictating": "Buddy - Dictating... (Press Right Alt to stop)",
         }
         self.tray.setToolTip(tooltips.get(state, "Buddy"))
 
@@ -112,7 +130,9 @@ class TrayIconController(QObject):
         """
         Switches between sleeping and active recording states based on real-time audio detection.
         """
-        if getattr(self.audio_handler, "_is_paused", False):
+        if getattr(self.audio_handler, "_is_paused", False) is True:
+            return
+        if getattr(self.audio_handler, "_is_dictating", False) is True:
             return
         self.set_status("active" if is_active else "sleeping")
 
@@ -171,6 +191,21 @@ class TrayIconController(QObject):
             painter.drawRoundedRect(18, 10, 4, 12, 1.5, 1.5)
 
 
+        elif state == "dictating":
+            # Radiant crimson recording dot with pulsing wave rings
+            red_color = QColor("#EF4444")
+            painter.setBrush(red_color)
+            painter.setPen(Qt.NoPen)
+            painter.drawEllipse(10, 10, 12, 12)
+
+            # Concentric recording halo rings
+            painter.setBrush(Qt.NoBrush)
+            painter.setPen(QPen(red_color, 2, Qt.SolidLine))
+            painter.drawEllipse(3, 3, 26, 26)
+
+            painter.setPen(QPen(QColor(239, 68, 68, 120), 1, Qt.DashLine))
+            painter.drawEllipse(6, 6, 20, 20)
+
         else:  # "sleeping" / default
             # Soft slate/indigo standby dot with muted sleep ring
             slate_color = QColor("#64748B")
@@ -196,6 +231,10 @@ class TrayIconController(QObject):
         self.pause_until_8am_action.triggered.connect(self.on_pause_until_8am)
 
         self.menu.addSeparator()
+
+        # Recent Dictations submenu
+        self.recent_menu = self.menu.addMenu("Recent Dictations")
+        self._update_recent_menu()
 
         open_transcripts_action = self.menu.addAction("Open Transcripts Folder")
         open_transcripts_action.triggered.connect(self.on_open_transcripts_folder)
@@ -403,11 +442,113 @@ class TrayIconController(QObject):
             4000
         )
 
+    def _update_recent_menu(self):
+        """
+        Rebuilds the Recent Dictations submenu actions from RecentTranscriptsManager.
+        """
+        if not hasattr(self, "recent_menu") or not hasattr(self, "recent_transcripts"):
+            return
+
+        self.recent_menu.clear()
+        recent_items = self.recent_transcripts.get_recent()
+
+        if not recent_items:
+            empty_action = self.recent_menu.addAction("No recent dictations")
+            empty_action.setEnabled(False)
+            return
+
+        for item in recent_items:
+            text = item.get("text", "")
+            ts = item.get("timestamp", "")
+            time_part = ts.split()[1] if " " in ts else ts
+            preview = text.replace("\n", " ").strip()
+            if len(preview) > 35:
+                preview = preview[:32] + "..."
+
+            label = f"{time_part}: {preview}"
+            action = self.recent_menu.addAction(label)
+            action.triggered.connect(lambda checked=False, t=text, p=preview: self._copy_transcript_to_clipboard(t, p))
+
+        self.recent_menu.addSeparator()
+        clear_action = self.recent_menu.addAction("Clear History")
+        clear_action.triggered.connect(self._clear_recent_transcripts)
+
+    def _copy_transcript_to_clipboard(self, text: str, preview: str):
+        clipboard = QGuiApplication.clipboard()
+        if clipboard is not None:
+            clipboard.setText(text)
+        self.tray.showMessage(
+            "Copied to Clipboard",
+            preview,
+            QSystemTrayIcon.MessageIcon.Information,
+            2000
+        )
+
+    def _clear_recent_transcripts(self):
+        self.recent_transcripts.clear()
+        self._update_recent_menu()
+
+    @Slot()
+    def on_dictation_hotkey(self):
+        """
+        Toggles dictation mode on / off when the global hotkey is pressed.
+        """
+        if not getattr(self.audio_handler, "_is_dictating", False):
+            # Start dictation
+            self.audio_handler.start_dictation()
+            self.set_status("dictating")
+        else:
+            # Stop dictation
+            wav_bytes = self.audio_handler.stop_dictation()
+            self.set_status("active")
+            if wav_bytes:
+                self.executor.submit(self._process_dictation_async, wav_bytes)
+            else:
+                self.dictation_completed.emit("")
+
+    def _process_dictation_async(self, wav_bytes: bytes):
+        """
+        Worker task running in thread pool: transcribes, optimizes, pastes, and saves history.
+        """
+        try:
+            raw_text = self.transcriber.transcribe_dictation(wav_bytes)
+            if not raw_text:
+                self.dictation_completed.emit("")
+                return
+
+            optimized_text = self.transcriber.optimize_dictation(raw_text)
+            final_text = optimized_text if optimized_text else raw_text
+
+            # Output to current cursor position
+            TextInjector.paste_text(final_text)
+
+            # Store in recent history
+            self.recent_transcripts.add_transcript(final_text)
+
+            self.dictation_completed.emit(final_text)
+        except Exception as e:
+            print(f"[Warning] Dictation processing error: {e}")
+            self.dictation_completed.emit("")
+
+    @Slot(str)
+    def _on_dictation_completed(self, text: str):
+        """
+        Handles post-dictation GUI updates on the main Qt thread.
+        """
+        self._update_recent_menu()
+        if getattr(self.audio_handler, "_is_paused", False) is True:
+            self.set_status("paused")
+        else:
+            is_active = getattr(self.audio_handler, "_is_speech_active", False) is True
+            self.set_status("active" if is_active else "sleeping")
+
     @Slot()
     def on_exit(self):
         """
         Cleanly stops background streams, flushes worker threads, and exits the application.
         """
+        if hasattr(self, "hotkey_listener") and self.hotkey_listener is not None:
+            self.hotkey_listener.stop()
         if self._auto_resume_timer.isActive():
             self._auto_resume_timer.stop()
         self.updater.stop()

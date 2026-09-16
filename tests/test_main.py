@@ -40,21 +40,24 @@ def test_main_initialization_pipeline(
     mock_app_instance.setQuitOnLastWindowClosed.assert_called_once_with(False)
 
     # Assert: 3. Core background services are instantiated
+    expected_config = {
+        "GEMINI_API_KEY": "mocked-api-key",
+        "GEMINI_MODEL": "gemini-3.5-transcribe",
+        "GITHUB_REPO": "shuaiyuancn/buddy",
+        "AUTO_UPDATE": True,
+        "UPDATE_CHECK_INTERVAL_HOURS": 1,
+        "AUTO_START": True,
+        "DICTATION_HOTKEY": "right_alt"
+    }
     mock_transcriber_class.assert_called_once_with(
         api_key="mocked-api-key",
-        config_dict={
-            "GEMINI_API_KEY": "mocked-api-key",
-            "GEMINI_MODEL": "gemini-3.5-transcribe",
-            "GITHUB_REPO": "shuaiyuancn/buddy",
-            "AUTO_UPDATE": True,
-            "UPDATE_CHECK_INTERVAL_HOURS": 1,
-            "AUTO_START": True
-        }
+        config_dict=expected_config
     )
     mock_audio_handler_class.assert_called_once_with(target_sr=16000, window_duration_sec=60)
     mock_tray_controller_class.assert_called_once_with(
         audio_handler=mock_audio_handler,
-        transcriber_service=mock_transcriber_class.return_value
+        transcriber_service=mock_transcriber_class.return_value,
+        config_dict=expected_config
     )
 
     # Assert: 4. Audio recorder thread and tray icons are booted and visible
