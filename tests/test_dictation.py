@@ -248,6 +248,39 @@ def test_tray_hotkey_toggle_dictation():
         mock_audio.stop_dictation.assert_called_once()
         mock_submit.assert_called_once()
 
+def test_altgr_hotkey_parsing():
+    from src.ui.hotkey import parse_hotkey, MOD_NOREPEAT
 
+    mod, vk = parse_hotkey("altgr")
+    assert vk == 0xA5
+    assert mod == MOD_NOREPEAT
 
+    mod, vk = parse_hotkey("alt_gr")
+    assert vk == 0xA5
+    assert mod == MOD_NOREPEAT
 
+def test_async_key_loop_edge_detection():
+    from unittest.mock import patch, MagicMock
+    from src.ui.hotkey import GlobalHotkeyListener
+
+    listener = GlobalHotkeyListener(hotkey="right_alt")
+    signals_received = []
+    listener.hotkey_triggered.connect(lambda: signals_received.append(True))
+
+    # Simulate key sequence: Up -> Down -> Down -> Up -> Down
+    # 0x8000 means pressed, 0 means released
+    key_states = [0, 0x8000, 0x8000, 0, 0x8000]
+    
+    with patch("ctypes.windll.user32.GetAsyncKeyState") as mock_get_async:
+        mock_get_async.side_effect = lambda vk: key_states.pop(0) if key_states else 0
+        with patch("time.sleep") as mock_sleep:
+            # Stop the loop after 5 iterations
+            def stop_loop(_):
+                if not key_states:
+                    listener._is_running = False
+            mock_sleep.side_effect = stop_loop
+
+            listener._run_async_key_loop()
+
+    # Leading edge should trigger exactly 2 times (first Down, and second Down after release)
+    assert len(signals_received) == 2
