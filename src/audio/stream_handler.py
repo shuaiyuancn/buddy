@@ -209,7 +209,7 @@ class AudioStreamHandler(QThread):
         Blocking loop for microphone recording with automatic reconnection on device disconnects.
         """
         samplerate = 16000  # Record natively at target 16kHz mono
-        block_duration = 1.0  # Fetch 1-second chunks
+        block_duration = 0.1  # Fetch 100ms chunks for low-latency draining
         block_size = int(samplerate * block_duration)
         retry_delay = 2.0
 

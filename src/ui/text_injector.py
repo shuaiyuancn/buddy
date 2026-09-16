@@ -40,10 +40,21 @@ class TextInjector:
         user32 = ctypes.windll.user32
         VK_CONTROL = 0x11
         VK_V = 0x56
+        VK_MENU = 0x12
+        VK_LMENU = 0xA4
+        VK_RMENU = 0xA5
         KEYEVENTF_KEYUP = 0x0002
+
+        # Ensure any Alt modifier keys (e.g. Right Alt / AltGr) are released
+        # so Windows does not interpret Ctrl+V as Ctrl+Alt+V
+        for mod_vk in (VK_RMENU, VK_LMENU, VK_MENU):
+            user32.keybd_event(mod_vk, 0, KEYEVENTF_KEYUP, 0)
+
+        time.sleep(0.02)
 
         # Press Ctrl + V, then release
         user32.keybd_event(VK_CONTROL, 0, 0, 0)
         user32.keybd_event(VK_V, 0, 0, 0)
+        time.sleep(0.01)
         user32.keybd_event(VK_V, 0, KEYEVENTF_KEYUP, 0)
         user32.keybd_event(VK_CONTROL, 0, KEYEVENTF_KEYUP, 0)

@@ -508,7 +508,8 @@ class TrayIconController(QObject):
 
     def _process_dictation_async(self, wav_bytes: bytes):
         """
-        Worker task running in thread pool: transcribes, optimizes, pastes, and saves history.
+        Worker task running in thread pool: transcribes and optimizes dictation audio.
+        Emits dictation_completed signal to hand off GUI and clipboard injection to the main thread.
         """
         try:
             raw_text = self.transcriber.transcribe_dictation(wav_bytes)
@@ -519,12 +520,6 @@ class TrayIconController(QObject):
             optimized_text = self.transcriber.optimize_dictation(raw_text)
             final_text = optimized_text if optimized_text else raw_text
 
-            # Output to current cursor position
-            TextInjector.paste_text(final_text)
-
-            # Store in recent history
-            self.recent_transcripts.add_transcript(final_text)
-
             self.dictation_completed.emit(final_text)
         except Exception as e:
             print(f"[Warning] Dictation processing error: {e}")
@@ -533,8 +528,15 @@ class TrayIconController(QObject):
     @Slot(str)
     def _on_dictation_completed(self, text: str):
         """
-        Handles post-dictation GUI updates on the main Qt thread.
+        Handles post-dictation injection and GUI updates on the main Qt thread.
         """
+        if text:
+            # Output to current cursor position on the Main GUI thread (where QClipboard works)
+            TextInjector.paste_text(text)
+
+            # Store in recent history
+            self.recent_transcripts.add_transcript(text)
+
         self._update_recent_menu()
         if getattr(self.audio_handler, "_is_paused", False) is True:
             self.set_status("paused")

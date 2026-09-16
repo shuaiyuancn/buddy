@@ -284,3 +284,74 @@ def test_async_key_loop_edge_detection():
 
     # Leading edge should trigger exactly 2 times (first Down, and second Down after release)
     assert len(signals_received) == 2
+
+def test_transcribe_dictation_with_gemini_audio_transcription_parts(temp_storage_dir):
+    """
+    Verifies that candidate parts with audio_transcription (as returned by gemini-3.5-transcribe)
+    are properly extracted rather than returning empty text.
+    """
+    from unittest.mock import MagicMock
+    import numpy as np
+    from src.ai.transcriber import TranscriberService, FileAppender
+    from src.audio.mixer import AudioMixer
+
+    service = TranscriberService(api_key="mock-key")
+    service.appender = FileAppender(temp_storage_dir)
+
+    mock_client = MagicMock()
+    mock_resp = MagicMock()
+    mock_resp.text = None
+
+    mock_part = MagicMock()
+    mock_part.text = None
+    mock_part.audio_transcription.text = "This is dictated speech from gemini 3.5 transcribe."
+
+    mock_candidate = MagicMock()
+    mock_candidate.content.parts = [mock_part]
+    mock_resp.candidates = [mock_candidate]
+    mock_client.models.generate_content.return_value = mock_resp
+    service.client = mock_client
+
+    t = np.linspace(0, 1.0, 16000, endpoint=False)
+    tone = (np.sin(2 * np.pi * 440.0 * t) * 0.5).astype(np.float32)
+    wav_bytes = AudioMixer.convert_to_wav_bytes(tone, sample_rate=16000)
+
+    result = service.transcribe_dictation(wav_bytes)
+    assert result == "This is dictated speech from gemini 3.5 transcribe."
+
+def test_tray_dictation_completed_gui_thread_paste():
+    """
+    Verifies that _on_dictation_completed on the GUI thread triggers paste and updates history.
+    """
+    import sys
+    from unittest.mock import MagicMock, patch
+    from PySide6.QtWidgets import QApplication
+    from src.ui.tray_icon import TrayIconController
+
+    app = QApplication.instance() or QApplication(sys.argv)
+    mock_audio = MagicMock()
+    mock_transcriber = MagicMock()
+
+    controller = TrayIconController(mock_audio, mock_transcriber)
+    with patch("src.ui.tray_icon.TextInjector.paste_text") as mock_paste:
+        controller._on_dictation_completed("Dictated output for cursor")
+        mock_paste.assert_called_once_with("Dictated output for cursor")
+        recent = controller.recent_transcripts.get_recent()
+        assert len(recent) > 0
+        assert recent[0]["text"] == "Dictated output for cursor"
+
+def test_text_injector_releases_alt_modifiers():
+    """
+    Verifies that _simulate_paste releases Alt modifier keys prior to synthesizing Ctrl+V.
+    """
+    from unittest.mock import patch, call
+    from src.ui.text_injector import TextInjector
+
+    with patch("ctypes.windll.user32.keybd_event") as mock_keybd:
+        TextInjector._simulate_paste()
+        # Ensure VK_RMENU (0xA5), VK_LMENU (0xA4), VK_MENU (0x12) were called with KEYEVENTF_KEYUP (2)
+        key_ups = [c for c in mock_keybd.call_args_list if c[0][2] == 2]
+        released_vks = [c[0][0] for c in key_ups]
+        assert 0xA5 in released_vks
+        assert 0xA4 in released_vks
+        assert 0x12 in released_vks

@@ -332,11 +332,16 @@ class TranscriberService:
         Transcribes voice dictation audio via Gemini without multi-speaker diarization prefixes.
         Returns the raw transcribed speech text.
         """
-        if not wav_bytes:
+        if not wav_bytes or len(wav_bytes) <= 44:
             return ""
 
-        if self.is_wav_silent(wav_bytes):
-            return ""
+        # Only discard if buffer contains fewer than 1600 samples (~100ms)
+        try:
+            with wave.open(io.BytesIO(wav_bytes), "rb") as wf:
+                if wf.getnframes() < 1600:
+                    return ""
+        except Exception:
+            pass
 
         if not self.api_key:
             return ""
@@ -369,8 +374,11 @@ class TranscriberService:
                     if parts:
                         for part in parts:
                             p_text = getattr(part, "text", None)
-                            if p_text:
-                                raw_text += p_text + " "
+                            at = getattr(part, "audio_transcription", None)
+                            at_text = getattr(at, "text", None) if at else None
+                            text_piece = (p_text or at_text or "").strip()
+                            if text_piece:
+                                raw_text += text_piece + " "
                 raw_text = raw_text.strip()
 
             # Clean speaker labels if model included any like "Me: ", "Speaker 1: ", "Others: "
