@@ -355,3 +355,73 @@ def test_text_injector_releases_alt_modifiers():
         assert 0xA5 in released_vks
         assert 0xA4 in released_vks
         assert 0x12 in released_vks
+
+def test_process_dictation_single_pass_success():
+    """
+    Verifies process_dictation executes single-pass prompt and parses response.
+    """
+    from unittest.mock import MagicMock
+    from src.ai.transcriber import TranscriberService
+    from src.audio.mixer import AudioMixer
+    import numpy as np
+
+    service = TranscriberService(api_key="fake-key", config_dict={"DICTATION_MODEL": "gemini-3.5-flash-lite"})
+    mock_client = MagicMock()
+    mock_resp = MagicMock()
+    mock_resp.text = "Hello, this is fast single pass dictation."
+    mock_client.models.generate_content.return_value = mock_resp
+    service.client = mock_client
+
+    t = np.linspace(0, 1.0, 16000, endpoint=False)
+    tone = (np.sin(2 * np.pi * 440.0 * t) * 0.5).astype(np.float32)
+    wav_bytes = AudioMixer.convert_to_wav_bytes(tone, sample_rate=16000)
+
+    result = service.process_dictation(wav_bytes)
+    assert result == "Hello, this is fast single pass dictation."
+    assert mock_client.models.generate_content.call_count == 1
+    call_args = mock_client.models.generate_content.call_args[1]
+    assert call_args["model"] == "gemini-3.5-flash-lite"
+
+def test_process_dictation_fallback_to_two_pass():
+    """
+    Verifies that if single-pass fails, process_dictation falls back to transcribe + optimize.
+    """
+    from unittest.mock import MagicMock, patch
+    from src.ai.transcriber import TranscriberService
+    from src.audio.mixer import AudioMixer
+    import numpy as np
+
+    service = TranscriberService(api_key="fake-key")
+    mock_client = MagicMock()
+    # First call (single-pass) raises exception
+    mock_client.models.generate_content.side_effect = Exception("Single pass error")
+    service.client = mock_client
+
+    t = np.linspace(0, 1.0, 16000, endpoint=False)
+    tone = (np.sin(2 * np.pi * 440.0 * t) * 0.5).astype(np.float32)
+    wav_bytes = AudioMixer.convert_to_wav_bytes(tone, sample_rate=16000)
+
+    with patch.object(service, "transcribe_dictation", return_value="raw speech") as mock_transcribe, \
+         patch.object(service, "optimize_dictation", return_value="Optimized speech.") as mock_opt:
+        result = service.process_dictation(wav_bytes)
+        assert result == "Optimized speech."
+        mock_transcribe.assert_called_once_with(wav_bytes)
+        mock_opt.assert_called_once_with("raw speech")
+
+def test_text_injector_win32_clipboard_synchronous():
+    """
+    Verifies that _set_clipboard_win32 sets the native OS clipboard.
+    """
+    import sys
+    from src.ui.text_injector import TextInjector
+    if sys.platform == "win32":
+        test_phrase = "Buddy Win32 Clipboard Verification!"
+        success = TextInjector._set_clipboard_win32(test_phrase)
+        assert success is True
+
+        # Read back via Qt clipboard
+        from PySide6.QtWidgets import QApplication
+        from PySide6.QtGui import QGuiApplication
+        app = QApplication.instance() or QApplication(sys.argv)
+        assert QGuiApplication.clipboard().text() == test_phrase
+

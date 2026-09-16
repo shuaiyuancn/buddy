@@ -512,14 +512,8 @@ class TrayIconController(QObject):
         Emits dictation_completed signal to hand off GUI and clipboard injection to the main thread.
         """
         try:
-            raw_text = self.transcriber.transcribe_dictation(wav_bytes)
-            if not raw_text:
-                self.dictation_completed.emit("")
-                return
-
-            optimized_text = self.transcriber.optimize_dictation(raw_text)
-            final_text = optimized_text if optimized_text else raw_text
-
+            # High-performance single-pass transcription & optimization (with automatic fallback)
+            final_text = self.transcriber.process_dictation(wav_bytes)
             self.dictation_completed.emit(final_text)
         except Exception as e:
             print(f"[Warning] Dictation processing error: {e}")

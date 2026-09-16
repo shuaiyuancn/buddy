@@ -59,7 +59,8 @@ def load_full_config():
         "AUTO_UPDATE": True,
         "UPDATE_CHECK_INTERVAL_HOURS": 1,
         "AUTO_START": True,
-        "DICTATION_HOTKEY": "right_alt"
+        "DICTATION_HOTKEY": "right_alt",
+        "DICTATION_MODEL": "gemini-3.5-flash-lite"
     }
 
     if not CONFIG_FILE.exists():

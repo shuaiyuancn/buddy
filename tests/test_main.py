@@ -47,7 +47,8 @@ def test_main_initialization_pipeline(
         "AUTO_UPDATE": True,
         "UPDATE_CHECK_INTERVAL_HOURS": 1,
         "AUTO_START": True,
-        "DICTATION_HOTKEY": "right_alt"
+        "DICTATION_HOTKEY": "right_alt",
+        "DICTATION_MODEL": "gemini-3.5-flash-lite"
     }
     mock_transcriber_class.assert_called_once_with(
         api_key="mocked-api-key",
