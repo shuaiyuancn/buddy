@@ -27,10 +27,10 @@ The installer will:
 ## 🎙️ System Tray & Controls
 
 * **Dynamic Status Indicators**:
-  * ⚪ **Sleeping**: Standby mode, monitoring for speech.
-  * 🔵 **Active**: Real-time audio recording & transcription.
-  * 🔴 **Dictating**: Dictation mode active, capturing your voice.
-  * 🟡 **Paused**: Listening suspended.
+  * <img src="assets/icons/icon_sleeping.png" width="16" height="16" alt="Sleeping" /> **Sleeping**: Standby mode, monitoring for speech.
+  * <img src="assets/icons/icon_active.png" width="16" height="16" alt="Active" /> **Active**: Real-time audio recording & transcription.
+  * <img src="assets/icons/icon_dictating.png" width="16" height="16" alt="Dictating" /> **Dictating**: Dictation mode active, capturing your voice.
+  * <img src="assets/icons/icon_paused.png" width="16" height="16" alt="Paused" /> **Paused**: Listening suspended.
 * **Smart Dictation Mode**:
   * **Global Hotkey**: Press **Right Alt** (configurable via `DICTATION_HOTKEY`) to start dictation mode. Normal background recording is paused.
   * **Auto-Type at Cursor**: Press the hotkey again when done speaking. Buddy transcribes your speech with Gemini, optimizes the text for fluency, punctuation, and clarity (stripping verbal fillers like "um" and "uh"), and automatically types/pastes it directly into your active window at the cursor position.
