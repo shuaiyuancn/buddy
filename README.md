@@ -41,6 +41,7 @@ The installer will:
 * **Transcripts Access**: Click **Open Transcripts Folder** to view daily markdown logs saved in `%USERPROFILE%\.buddy\transcripts\`.
 * **Auto-Start on Login**: Toggle **Start on Windows Login** directly from the tray menu to automatically launch Buddy when you log in.
 * **Automatic Background Updates**: Buddy checks GitHub Releases hourly and updates seamlessly. You can also manually check via **Check for Updates...**.
+* **Single Instance**: Only one Buddy runs per Windows session. Launching it again (Start Menu, login autostart, installer) shows an "already running" notification and exits.
 
 ---
 

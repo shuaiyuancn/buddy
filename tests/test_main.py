@@ -1,4 +1,5 @@
 import sys
+import pytest
 from unittest.mock import patch, MagicMock
 from src.main import main
 
@@ -67,3 +68,29 @@ def test_main_initialization_pipeline(
     
     # Assert: 5. Qt Event Loop starts running
     mock_app_instance.exec.assert_called_once()
+
+
+@patch("src.main.acquire_single_instance_lock", return_value=False)
+@patch("src.main.trigger_toast_and_exit", side_effect=SystemExit(0))
+@patch("src.main.check_api_key_or_toast_and_exit")
+@patch("src.main.AudioStreamHandler")
+@patch("src.main.TrayIconController")
+def test_main_exits_when_another_instance_is_running(
+    mock_tray_controller_class,
+    mock_audio_handler_class,
+    mock_check_key,
+    mock_toast_and_exit,
+    mock_acquire_lock
+):
+    with pytest.raises(SystemExit) as exc_info:
+        main()
+
+    assert exc_info.value.code == 0
+    mock_toast_and_exit.assert_called_once()
+    assert mock_toast_and_exit.call_args.kwargs["exit_code"] == 0
+    assert mock_toast_and_exit.call_args.kwargs["critical"] is False
+
+    # Nothing else boots: no key check, no audio capture, no tray icon
+    mock_check_key.assert_not_called()
+    mock_audio_handler_class.assert_not_called()
+    mock_tray_controller_class.assert_not_called()

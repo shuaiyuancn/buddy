@@ -1,13 +1,24 @@
 import sys
 import signal
 from PySide6.QtWidgets import QApplication
-from src.config import check_api_key_or_toast_and_exit, load_full_config
+from src.config import check_api_key_or_toast_and_exit, load_full_config, trigger_toast_and_exit
+from src.single_instance import acquire_single_instance_lock
 from src.autostart import ensure_autostart_state
 from src.audio.stream_handler import AudioStreamHandler
 from src.ai.transcriber import TranscriberService
 from src.ui.tray_icon import TrayIconController
 
 def main():
+    # 0. Enforce a single running instance. A second launch (Start Menu, login autostart,
+    #    installer relaunch) notifies the user and exits before touching audio devices.
+    if not acquire_single_instance_lock():
+        trigger_toast_and_exit(
+            "Buddy is already running. Look for its icon in the system tray.",
+            title="Buddy",
+            critical=False,
+            exit_code=0
+        )
+
     # 1. Enforce windowless API Key check. Aborts and fires Windows toast notification if missing.
     api_key = check_api_key_or_toast_and_exit()
 

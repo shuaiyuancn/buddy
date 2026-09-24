@@ -99,33 +99,37 @@ def save_config_key(key: str, value) -> bool:
         return False
 
 
-def trigger_toast_and_exit(message: str):
+def trigger_toast_and_exit(message: str, title: str = "Buddy - Config Error", critical: bool = True, exit_code: int = 1):
     """
-    Triggers a native Windows critical Toast notification and exits immediately.
+    Triggers a native Windows Toast notification and exits immediately.
+    Defaults to a critical configuration-error toast; pass critical=False for an informational one.
     """
-    print(f"CRITICAL CONFIGURATION ERROR: {message}", file=sys.stderr)
-    
+    if critical:
+        print(f"CRITICAL CONFIGURATION ERROR: {message}", file=sys.stderr)
+    else:
+        print(f"[Buddy] {message}")
+
     # Initialize a dummy QApplication for native tray notification
     app = QApplication.instance() or QApplication(sys.argv)
     tray = QSystemTrayIcon()
-    
-    # We can use standard critical MessageBox icon
+
+    # We can use standard MessageBox icons
     style = app.style() if app else QApplication.style()
-    critical_icon = style.standardIcon(QStyle.StandardPixmap.SP_MessageBoxCritical)
-    tray.setIcon(critical_icon)
+    pixmap = QStyle.StandardPixmap.SP_MessageBoxCritical if critical else QStyle.StandardPixmap.SP_MessageBoxInformation
+    tray.setIcon(style.standardIcon(pixmap))
     tray.show()
-    
-    # Send Toast message instructing user of the specific configuration error
+
+    # Send Toast message instructing user of the specific issue
     tray.showMessage(
-        "Buddy - Config Error",
+        title,
         message,
-        QSystemTrayIcon.MessageIcon.Critical,
+        QSystemTrayIcon.MessageIcon.Critical if critical else QSystemTrayIcon.MessageIcon.Information,
         10000  # Show for 10 seconds
     )
-    
+
     # Allow Qt event loop to process the toast draw event
     time.sleep(3.0)
-    sys.exit(1)
+    sys.exit(exit_code)
 
 def get_secure_api_key(service_name: str = "Buddy", username: str = "GEMINI_API_KEY") -> str:
     """
