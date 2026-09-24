@@ -160,13 +160,14 @@ class AutoUpdater(QObject):
         try:
             # Determine current executable path
             if getattr(sys, 'frozen', False):
-                current_exe = sys.executable
+                current_exe = os.path.realpath(sys.executable)
             else:
                 # Running from source, simulate download to temp
-                current_exe = os.path.abspath(sys.argv[0])
+                current_exe = os.path.realpath(sys.argv[0])
 
-            # Download new binary to temporary file
-            temp_dir = tempfile.gettempdir()
+            # Download new binary to temporary file. realpath expands 8.3 short names
+            # (e.g. C:\Users\SHUAI~1.YUA) that Windows PowerShell 5.1's Move-Item cannot resolve.
+            temp_dir = os.path.realpath(tempfile.gettempdir())
             staged_exe = os.path.join(temp_dir, f"Buddy_v{new_version_tag}.exe")
 
             resp = requests.get(download_url, stream=True, timeout=60)
@@ -200,17 +201,23 @@ class AutoUpdater(QObject):
         PID to exit, unblocks and replaces Buddy.exe with the new binary, and launches the updated application.
         """
         pid = os.getpid()
-        dest_dir = os.path.dirname(os.path.abspath(current_exe))
-        log_file = os.path.join(tempfile.gettempdir(), "buddy_updater.log")
+        staged_exe = os.path.realpath(staged_exe)
+        current_exe = os.path.realpath(current_exe)
+        dest_dir = os.path.dirname(current_exe)
+        log_file = os.path.join(os.path.realpath(tempfile.gettempdir()), "buddy_updater.log")
+
+        def ps_quote(value: str) -> str:
+            # PowerShell single-quoted literal: only ' needs escaping (as '')
+            return "'" + value.replace("'", "''") + "'"
 
         # Robust PowerShell updater script with transcript logging, retry loops, and file unblocking
         ps_script = (
-            f"$logPath = '{log_file}'; "
+            f"$logPath = {ps_quote(log_file)}; "
             f"Start-Transcript -Path $logPath -Force -ErrorAction SilentlyContinue; "
             f"$targetPid = {pid}; "
-            f"$staged = '{staged_exe}'; "
-            f"$dest = '{current_exe}'; "
-            f"$workDir = '{dest_dir}'; "
+            f"$staged = {ps_quote(staged_exe)}; "
+            f"$dest = {ps_quote(current_exe)}; "
+            f"$workDir = {ps_quote(dest_dir)}; "
             f"Write-Host \"Buddy Updater started. Target PID: $targetPid, Destination: $dest\"; "
             f"$waitCount = 0; "
             f"while ((Get-Process -Id $targetPid -ErrorAction SilentlyContinue) -and ($waitCount -lt 150)) {{ "
@@ -219,12 +226,12 @@ class AutoUpdater(QObject):
             f"}}; "
             f"$proc = Get-Process -Id $targetPid -ErrorAction SilentlyContinue; "
             f"if ($proc) {{ Stop-Process -Id $targetPid -Force -ErrorAction SilentlyContinue; Start-Sleep -Milliseconds 500; }}; "
-            f"Unblock-File -Path $staged -ErrorAction SilentlyContinue; "
+            f"Unblock-File -LiteralPath $staged -ErrorAction SilentlyContinue; "
             f"$moved = $false; "
             f"$retries = 30; "
             f"while (($retries -gt 0) -and (-not $moved)) {{ "
             f"    try {{ "
-            f"        Move-Item -Path $staged -Destination $dest -Force -ErrorAction Stop; "
+            f"        Move-Item -LiteralPath $staged -Destination $dest -Force -ErrorAction Stop; "
             f"        $moved = $true; "
             f"        Write-Host 'Move-Item succeeded!'; "
             f"    }} catch {{ "
@@ -233,11 +240,12 @@ class AutoUpdater(QObject):
             f"        $retries--; "
             f"    }} "
             f"}}; "
-            f"if ($moved -and (Test-Path $dest)) {{ "
+            f"if ($moved -and (Test-Path -LiteralPath $dest)) {{ "
             f"    Write-Host \"Launching updated application from $dest...\"; "
             f"    Start-Process -FilePath $dest -WorkingDirectory $workDir; "
             f"}} else {{ "
-            f"    Write-Host \"Update failed: unable to replace $dest\"; "
+            f"    Write-Host \"Update failed: unable to replace $dest. Relaunching current version.\"; "
+            f"    if (Test-Path -LiteralPath $dest) {{ Start-Process -FilePath $dest -WorkingDirectory $workDir; }} "
             f"}}; "
             f"Stop-Transcript -ErrorAction SilentlyContinue; "
         )

@@ -159,3 +159,30 @@ def test_spawn_windows_restart_script():
         mock_exit.assert_called_once_with(0)
 
 
+def _short_path(path: str) -> str:
+    import ctypes
+    buf = ctypes.create_unicode_buffer(1024)
+    n = ctypes.windll.kernel32.GetShortPathNameW(path, buf, len(buf))
+    return buf.value if n else path
+
+
+@pytest.mark.skipif(os.name != "nt", reason="8.3 short names are Windows-only")
+def test_spawn_windows_restart_script_expands_short_paths(tmp_path):
+    # Windows PowerShell 5.1's Move-Item cannot resolve 8.3 names like C:\Users\SHUAI~1.YUA,
+    # which tempfile.gettempdir() can return. The script must only ever see long paths.
+    long_dir = tmp_path / "a long directory name"
+    long_dir.mkdir()
+    staged = long_dir / "Buddy_v0.2.0.exe"
+    staged.write_bytes(b"MZ")
+    short_staged = _short_path(str(staged))
+    if short_staged == str(staged):
+        pytest.skip("8.3 short names are disabled on this volume")
+
+    updater = AutoUpdater(current_version="0.1.0")
+    with patch("subprocess.Popen") as mock_popen, patch("os._exit"):
+        updater._spawn_windows_restart_script(short_staged, str(long_dir / "Buddy.exe"))
+
+    script = mock_popen.call_args[0][0][-1]
+    assert f"$staged = '{os.path.realpath(short_staged)}'" in script
+    assert "~" not in script.split("$staged = ")[1].split(";")[0]
+    assert "Move-Item -LiteralPath $staged" in script
