@@ -3,7 +3,6 @@ import queue
 import threading
 import numpy as np
 import soundcard as sc
-import sounddevice as sd
 from PySide6.QtCore import QThread, Signal
 from src.audio.mixer import AudioMixer
 from src.audio.vad import VoiceActivityDetector
@@ -33,6 +32,8 @@ class AudioStreamHandler(QThread):
         self._is_speech_active = False
         self._silence_hangover_sec = 3
         self._recent_speech_countdown = 0
+        # How often capture threads check whether the Windows default device has changed
+        self.device_check_interval_sec = 2.0
         
         # Thread-safe queues for communication between worker threads and orchestrator
         self.mic_queue = queue.Queue()
@@ -204,9 +205,21 @@ class AudioStreamHandler(QThread):
 
         return AudioMixer.convert_to_wav_bytes(recorded_samples, sample_rate=self.target_sr)
 
+    def _default_device_changed(self, get_default, device_id: str) -> bool:
+        """
+        Returns True once the Windows default device no longer matches device_id
+        (headset plugged in, Bluetooth connected, default switched in Sound settings).
+        A failed lookup also counts as a change so the caller reopens on whatever is default now.
+        """
+        try:
+            return get_default().id != device_id
+        except Exception:
+            return True
+
     def _record_microphone(self):
         """
         Blocking loop for microphone recording with automatic reconnection on device disconnects.
+        Follows the Windows default microphone: when the default changes, the stream is reopened on the new device.
         """
         samplerate = 16000  # Record natively at target 16kHz mono
         block_duration = 0.1  # Fetch 100ms chunks for low-latency draining
@@ -215,14 +228,25 @@ class AudioStreamHandler(QThread):
 
         while self._is_running:
             try:
-                with sd.InputStream(samplerate=samplerate, channels=1, dtype='float32') as stream:
+                # soundcard (WASAPI) queries the live default each time; sounddevice/PortAudio
+                # snapshots the device list at import and never sees newly connected headsets.
+                mic = sc.default_microphone()
+                with mic.recorder(samplerate=samplerate, channels=1) as recorder:
+                    print(f"[Buddy] Microphone capture opened on: {mic.name}")
+                    next_device_check = time.monotonic() + self.device_check_interval_sec
                     while self._is_running:
+                        if time.monotonic() >= next_device_check:
+                            next_device_check = time.monotonic() + self.device_check_interval_sec
+                            if self._default_device_changed(sc.default_microphone, mic.id):
+                                print("[Buddy] Default microphone changed. Reopening capture...")
+                                break
+
                         if self._is_paused:
                             time.sleep(0.2)
                             continue
-                        
-                        data, overflow = stream.read(block_size)
-                        self.mic_queue.put(data.flatten())
+
+                        data = recorder.record(numframes=block_size)
+                        self.mic_queue.put(data.flatten().astype(np.float32))
             except Exception as e:
                 self.warning_logged.emit(f"Microphone Capture Error: {str(e)}")
                 # Provide silence fallback while backing off before reconnection attempt
@@ -236,6 +260,7 @@ class AudioStreamHandler(QThread):
     def _record_speaker_loopback(self):
         """
         Blocking loop for speaker loopback (WASAPI) with automatic reconnection.
+        Follows the Windows default output: when the default changes, loopback is reopened on the new device.
         """
         samplerate = 48000  # Default loopback rate
         block_size = int(samplerate * 1.0)  # 1-second blocks
@@ -244,9 +269,19 @@ class AudioStreamHandler(QThread):
         while self._is_running:
             try:
                 speaker = sc.default_speaker()
-                loopback = sc.get_microphone(id=str(speaker.name), include_loopback=True)
+                # Match by endpoint id: name matching is fuzzy and can pick a sibling output
+                # on the same sound card (e.g. "Speakers" vs "2nd output" on Realtek).
+                loopback = sc.get_microphone(id=speaker.id, include_loopback=True)
                 with loopback.recorder(samplerate=samplerate) as recorder:
+                    print(f"[Buddy] Speaker loopback opened on: {speaker.name}")
+                    next_device_check = time.monotonic() + self.device_check_interval_sec
                     while self._is_running:
+                        if time.monotonic() >= next_device_check:
+                            next_device_check = time.monotonic() + self.device_check_interval_sec
+                            if self._default_device_changed(sc.default_speaker, speaker.id):
+                                print("[Buddy] Default speaker changed. Reopening loopback...")
+                                break
+
                         if self._is_paused:
                             time.sleep(0.2)
                             continue

@@ -12,7 +12,6 @@ a = Analysis(
         'keyring',
         'keyring.backends.Windows',
         'soundcard',
-        'sounddevice',
         'numpy',
         'requests',
         'packaging',
