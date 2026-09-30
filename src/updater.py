@@ -195,6 +195,18 @@ class AutoUpdater(QObject):
                 self._is_updating = False
             self.update_error.emit(f"Failed to apply update: {str(e)}")
 
+    @staticmethod
+    def _clean_relaunch_env() -> dict:
+        """
+        Environment for the updater helper and the Buddy it relaunches.
+        A PyInstaller onefile child exports _PYI_* variables pointing at its own _MEI unpack
+        directory. If the relaunched Buddy inherits them, its bootloader treats itself as that
+        child and fails to load python312.dll from the already-deleted directory.
+        """
+        env = {k: v for k, v in os.environ.items() if not k.upper().startswith(("_PYI_", "_MEIPASS"))}
+        env["PYINSTALLER_RESET_ENVIRONMENT"] = "1"
+        return env
+
     def _spawn_windows_restart_script(self, staged_exe: str, current_exe: str):
         """
         Launches a detached hidden PowerShell helper process that waits for the current
@@ -253,7 +265,8 @@ class AutoUpdater(QObject):
         subprocess.Popen(
             ["powershell", "-ExecutionPolicy", "Bypass", "-WindowStyle", "Hidden", "-NoProfile", "-Command", ps_script],
             creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0,
-            close_fds=True
+            close_fds=True,
+            env=self._clean_relaunch_env()
         )
 
         # Force immediate OS-level process exit to release all file handles instantly

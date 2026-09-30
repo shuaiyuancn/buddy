@@ -186,3 +186,22 @@ def test_spawn_windows_restart_script_expands_short_paths(tmp_path):
     assert f"$staged = '{os.path.realpath(short_staged)}'" in script
     assert "~" not in script.split("$staged = ")[1].split(";")[0]
     assert "Move-Item -LiteralPath $staged" in script
+
+
+def test_restart_script_env_drops_pyinstaller_onefile_state():
+    # The relaunched Buddy must not inherit the old onefile child's _PYI_* state, or its
+    # bootloader looks for python312.dll in the old, already-deleted _MEI directory.
+    leaked = {
+        "_PYI_APPLICATION_HOME_DIR": r"C:\Temp\_MEI12345",
+        "_PYI_PARENT_PROCESS_LEVEL": "1",
+        "_PYI_ARCHIVE_FILE": r"C:\app\Buddy.exe",
+        "_MEIPASS2": r"C:\Temp\_MEI12345",
+    }
+    updater = AutoUpdater(current_version="0.1.0")
+    with patch.dict(os.environ, leaked), patch("subprocess.Popen") as mock_popen, patch("os._exit"):
+        updater._spawn_windows_restart_script("C:/temp/Buddy_v0.2.0.exe", "C:/app/Buddy.exe")
+
+    env = mock_popen.call_args.kwargs["env"]
+    assert not [k for k in env if k.upper().startswith(("_PYI_", "_MEIPASS"))]
+    assert env["PYINSTALLER_RESET_ENVIRONMENT"] == "1"
+    assert env.get("PATH") == os.environ.get("PATH")
