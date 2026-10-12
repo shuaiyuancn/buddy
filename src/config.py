@@ -10,6 +10,7 @@ from src.version import __version__
 # 1. Resolve and Establish Directories in user's hidden home directory
 USER_BUDDY_DIR = Path(os.environ.get("USERPROFILE", "C:\\")) / ".buddy"
 TRANSCRIPTS_DIR = USER_BUDDY_DIR / "transcripts"
+RECORDINGS_DIR = USER_BUDDY_DIR / "recordings"
 SUMMARIES_DIR = USER_BUDDY_DIR / "summaries"
 CONFIG_FILE = USER_BUDDY_DIR / "config.json"
 RECENT_TRANSCRIPTS_FILE = USER_BUDDY_DIR / "recent_transcripts.json"
@@ -20,6 +21,7 @@ def initialize_directories():
     Ensure the user's storage folders exist.
     """
     TRANSCRIPTS_DIR.mkdir(parents=True, exist_ok=True)
+    RECORDINGS_DIR.mkdir(parents=True, exist_ok=True)
 
 def load_config():
     """
@@ -60,7 +62,11 @@ def load_full_config():
         "UPDATE_CHECK_INTERVAL_HOURS": 1,
         "AUTO_START": True,
         "DICTATION_HOTKEY": "right_alt",
-        "DICTATION_MODEL": "gemini-3.5-flash-lite"
+        "DICTATION_MODEL": "gemini-3.5-flash-lite",
+        "SAVE_AUDIO_RECORDINGS": True,
+        "RECORDING_FORMAT": "mp3",
+        "RECORDING_CHUNK_MINUTES": 10,
+        "RECORDING_SAVE_SILENT_CHUNKS": False
     }
 
     if not CONFIG_FILE.exists():

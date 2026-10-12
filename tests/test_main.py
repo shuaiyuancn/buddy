@@ -49,13 +49,17 @@ def test_main_initialization_pipeline(
         "UPDATE_CHECK_INTERVAL_HOURS": 1,
         "AUTO_START": True,
         "DICTATION_HOTKEY": "right_alt",
-        "DICTATION_MODEL": "gemini-3.5-flash-lite"
+        "DICTATION_MODEL": "gemini-3.5-flash-lite",
+        "SAVE_AUDIO_RECORDINGS": True,
+        "RECORDING_FORMAT": "mp3",
+        "RECORDING_CHUNK_MINUTES": 10,
+        "RECORDING_SAVE_SILENT_CHUNKS": False
     }
     mock_transcriber_class.assert_called_once_with(
         api_key="mocked-api-key",
         config_dict=expected_config
     )
-    mock_audio_handler_class.assert_called_once_with(target_sr=16000, window_duration_sec=60)
+    mock_audio_handler_class.assert_called_once_with(target_sr=16000, window_duration_sec=60, config_dict=expected_config)
     mock_tray_controller_class.assert_called_once_with(
         audio_handler=mock_audio_handler,
         transcriber_service=mock_transcriber_class.return_value,

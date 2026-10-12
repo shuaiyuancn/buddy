@@ -32,6 +32,18 @@ def test_file_appender_creates_headers(temp_transcript_dir):
     # Text block should contain timestamp header and cleaned text
     assert "First transcription line." in content
 
+def test_file_appender_with_recording_annotation(temp_transcript_dir):
+    appender = FileAppender(temp_transcript_dir)
+    date_str = datetime.now().strftime("%Y-%m-%d")
+    expected_file = temp_transcript_dir / f"{date_str}_raw.md"
+
+    appender.append_transcription("Annotated line.", recording_file="recording_2026-10-12_10-00-00.mp3")
+
+    assert expected_file.exists()
+    content = expected_file.read_text(encoding="utf-8")
+    assert "*(recording_2026-10-12_10-00-00.mp3)*" in content
+    assert "Annotated line." in content
+
 def test_file_appender_thread_safety(temp_transcript_dir):
     appender = FileAppender(temp_transcript_dir)
     date_str = datetime.now().strftime("%Y-%m-%d")

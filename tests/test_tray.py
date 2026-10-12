@@ -223,3 +223,34 @@ def test_autostart_menu_action_initialized_and_toggle(qt_app):
         assert controller.autostart_action.isChecked() is False
         mock_save_fail.assert_not_called()
 
+
+def test_open_recordings_folder(qt_app):
+    mock_audio = MagicMock()
+    mock_transcriber = MagicMock()
+    controller = TrayIconController(mock_audio, mock_transcriber)
+
+    # Check menu has "Open Recordings Folder" action
+    action_texts = [action.text() for action in controller.menu.actions()]
+    assert "Open Recordings Folder" in action_texts
+
+    mock_dir = MagicMock()
+    mock_dir.exists.return_value = True
+    with patch("os.startfile") as mock_startfile, \
+         patch("src.ui.tray_icon.RECORDINGS_DIR", mock_dir):
+        controller.on_open_recordings_folder()
+        mock_startfile.assert_called_once_with(str(mock_dir))
+
+
+def test_safe_transcribe_passes_recording_file(qt_app):
+    mock_audio = MagicMock()
+    mock_audio.get_current_recording_filename.return_value = "recording_2026-10-12_10-00-00.mp3"
+    mock_transcriber = MagicMock()
+
+    controller = TrayIconController(mock_audio, mock_transcriber)
+    controller._safe_transcribe(b"dummy_wav")
+
+    mock_transcriber.transcribe_chunk.assert_called_once_with(
+        b"dummy_wav",
+        recording_file="recording_2026-10-12_10-00-00.mp3"
+    )
+

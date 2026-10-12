@@ -18,11 +18,12 @@ class FileAppender:
         self.directory = target_directory
         self._lock = threading.Lock()
 
-    def append_transcription(self, text: str) -> Path:
+    def append_transcription(self, text: str, recording_file: str = None) -> Path:
         """
         Safely appends a timestamped text block to the current day's raw markdown file.
         Args:
             text (str): The transcribed text block.
+            recording_file (str, optional): The filename of the active audio recording chunk.
         Returns:
             Path: The path to the active raw transcript log.
         """
@@ -43,7 +44,8 @@ class FileAppender:
                 if is_new:
                     f.write(f"# Buddy Raw Transcript Log - {date_str}\n")
                 
-                f.write(f"\n### [{timestamp_str}]\n{cleaned_text}\n")
+                header_tag = f" *({recording_file})*" if recording_file else ""
+                f.write(f"\n### [{timestamp_str}]{header_tag}\n{cleaned_text}\n")
         
         return file_path
 
@@ -104,7 +106,7 @@ class TranscriberService:
         except Exception:
             return False
 
-    def transcribe_chunk(self, wav_bytes: bytes) -> str:
+    def transcribe_chunk(self, wav_bytes: bytes, recording_file: str = None) -> str:
         """
         Transcribes an audio chunk using Gemini 3.5 Transcribe.
         """
@@ -114,7 +116,7 @@ class TranscriberService:
         if self.is_wav_silent(wav_bytes):
             return ""
 
-        return self._transcribe_gemini(wav_bytes)
+        return self._transcribe_gemini(wav_bytes, recording_file=recording_file)
 
     def _attribute_segments(self, parts: list, wav_bytes: bytes) -> str:
         """
@@ -248,7 +250,7 @@ class TranscriberService:
 
         return "\n".join(lines)
 
-    def _transcribe_gemini(self, wav_bytes: bytes) -> str:
+    def _transcribe_gemini(self, wav_bytes: bytes, recording_file: str = None) -> str:
         """
         Sends WAV audio bytes to Gemini 3.5 Transcribe with native speaker diarization.
         """
@@ -319,12 +321,12 @@ class TranscriberService:
 
             # Log to markdown file
             if transcribed_text:
-                self.appender.append_transcription(transcribed_text)
+                self.appender.append_transcription(transcribed_text, recording_file=recording_file)
                 
             return transcribed_text
         except Exception as e:
             error_msg = f"[Transcription Error: {str(e)}]"
-            self.appender.append_transcription(error_msg)
+            self.appender.append_transcription(error_msg, recording_file=recording_file)
             return error_msg
 
     def process_dictation(self, wav_bytes: bytes) -> str:

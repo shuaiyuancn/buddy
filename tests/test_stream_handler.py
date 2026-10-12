@@ -155,3 +155,23 @@ def test_default_device_lookup_failure_counts_as_change():
 
     assert handler._default_device_changed(broken_default, "any-id") is True
     assert handler._default_device_changed(lambda: MagicMock(id="same"), "same") is False
+
+
+def test_stream_handler_recorder_integration():
+    handler = AudioStreamHandler()
+    assert hasattr(handler, "recorder")
+    assert handler.recorder is not None
+
+    handler.recorder = MagicMock()
+    handler.recorder.get_current_recording_filename.return_value = "recording_test.mp3"
+
+    assert handler.get_current_recording_filename() == "recording_test.mp3"
+
+    handler.pause()
+    handler.recorder.flush.assert_called_once()
+
+    handler.recorder.flush.reset_mock()
+    with patch.object(handler, "wait"):
+        handler.stop()
+        handler.recorder.flush.assert_called_once()
+

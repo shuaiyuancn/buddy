@@ -23,6 +23,7 @@ def mock_config_paths(tmp_path):
     """Isolate all config operations to a temporary directory."""
     with patch("src.config.USER_BUDDY_DIR", tmp_path), \
          patch("src.config.TRANSCRIPTS_DIR", tmp_path / "transcripts"), \
+         patch("src.config.RECORDINGS_DIR", tmp_path / "recordings"), \
          patch("src.config.CONFIG_FILE", tmp_path / "config.json"):
         yield
 
@@ -30,8 +31,9 @@ def test_initialize_directories():
     # Execute folder check (should use mocked tmp_path)
     initialize_directories()
     
-    # Assert folder exists under mock
+    # Assert folders exist under mock
     assert src.config.TRANSCRIPTS_DIR.exists()
+    assert src.config.RECORDINGS_DIR.exists()
 
 def test_load_config_creates_template():
     # Ensure config file doesn't exist initially
@@ -115,6 +117,10 @@ def test_load_full_config_defaults():
     assert cfg.get("GEMINI_MODEL") == "gemini-3.5-transcribe"
     assert cfg.get("AUTO_UPDATE") is True
     assert cfg.get("AUTO_START") is True
+    assert cfg.get("SAVE_AUDIO_RECORDINGS") is True
+    assert cfg.get("RECORDING_FORMAT") == "mp3"
+    assert cfg.get("RECORDING_CHUNK_MINUTES") == 10
+    assert cfg.get("RECORDING_SAVE_SILENT_CHUNKS") is False
 
 
 def test_save_config_key(clean_env):

@@ -41,7 +41,7 @@ def main():
     transcriber = TranscriberService(api_key=api_key, config_dict=config_dict)
 
     print("[Buddy] Initializing Threaded Audio Capture Engine...")
-    audio_handler = AudioStreamHandler(target_sr=16000, window_duration_sec=60)
+    audio_handler = AudioStreamHandler(target_sr=16000, window_duration_sec=60, config_dict=config_dict)
 
     print("[Buddy] Constructing System Tray Interface...")
     tray_controller = TrayIconController(

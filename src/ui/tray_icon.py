@@ -8,7 +8,7 @@ from pathlib import Path
 from PySide6.QtWidgets import QSystemTrayIcon, QMenu, QMessageBox
 from PySide6.QtGui import QIcon, QPixmap, QPainter, QColor, QPen, QGuiApplication
 from PySide6.QtCore import QObject, Slot, Qt, QTimer, Signal
-from src.config import TRANSCRIPTS_DIR, APP_VERSION, save_config_key
+from src.config import TRANSCRIPTS_DIR, RECORDINGS_DIR, APP_VERSION, save_config_key
 from src.updater import AutoUpdater
 from src.autostart import is_autostart_enabled, set_autostart_enabled
 from src.ui.recent_transcripts import RecentTranscriptsManager
@@ -239,6 +239,9 @@ class TrayIconController(QObject):
         open_transcripts_action = self.menu.addAction("Open Transcripts Folder")
         open_transcripts_action.triggered.connect(self.on_open_transcripts_folder)
 
+        open_recordings_action = self.menu.addAction("Open Recordings Folder")
+        open_recordings_action.triggered.connect(self.on_open_recordings_folder)
+
         self.menu.addSeparator()
 
         self.autostart_action = self.menu.addAction("Start on Windows Login")
@@ -331,12 +334,15 @@ class TrayIconController(QObject):
                 4000
             )
 
-    def _safe_transcribe(self, wav_bytes: bytes):
+    def _safe_transcribe(self, wav_bytes: bytes, recording_file: str = None):
         """
         Executes transcription in worker pool and surfaces warnings if errors occur.
         """
         try:
-            result = self.transcriber.transcribe_chunk(wav_bytes)
+            if recording_file is None and hasattr(self, "audio_handler") and self.audio_handler is not None:
+                if hasattr(self.audio_handler, "get_current_recording_filename"):
+                    recording_file = self.audio_handler.get_current_recording_filename()
+            result = self.transcriber.transcribe_chunk(wav_bytes, recording_file=recording_file)
             if result and result.startswith("[Error:"):
                 self.audio_handler.warning_logged.emit(result)
         except Exception as e:
@@ -358,6 +364,14 @@ class TrayIconController(QObject):
         """
         if TRANSCRIPTS_DIR.exists():
             os.startfile(str(TRANSCRIPTS_DIR))
+
+    @Slot()
+    def on_open_recordings_folder(self):
+        """
+        Opens recordings directory in Windows explorer.
+        """
+        if RECORDINGS_DIR.exists():
+            os.startfile(str(RECORDINGS_DIR))
 
     @Slot(str)
     def show_warning_notification(self, text: str):

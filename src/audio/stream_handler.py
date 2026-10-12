@@ -15,7 +15,7 @@ class AudioStreamHandler(QThread):
     # Signal emitted for logging system warnings to the UI
     warning_logged = Signal(str)
 
-    def __init__(self, target_sr: int = 16000, window_duration_sec: int = 60, overlap_duration_sec: int = 3, energy_threshold_db: float = -45.0):
+    def __init__(self, target_sr: int = 16000, window_duration_sec: int = 60, overlap_duration_sec: int = 3, energy_threshold_db: float = -45.0, config_dict: dict = None):
         super().__init__()
         self.target_sr = target_sr
         self.window_duration_sec = window_duration_sec
@@ -23,6 +23,25 @@ class AudioStreamHandler(QThread):
         self.total_target_samples = target_sr * window_duration_sec
         self.overlap_samples = target_sr * overlap_duration_sec
         self.vad = VoiceActivityDetector(energy_threshold_db=energy_threshold_db)
+        self.config = config_dict or {}
+
+        # Audio Recorder initialization for 10-minute chunk persistence
+        from src.audio.recorder import AudioRecorder
+        from src.config import RECORDINGS_DIR
+
+        chunk_minutes = self.config.get("RECORDING_CHUNK_MINUTES", 10)
+        audio_format = self.config.get("RECORDING_FORMAT", "mp3")
+        save_silent = self.config.get("RECORDING_SAVE_SILENT_CHUNKS", False)
+        save_enabled = self.config.get("SAVE_AUDIO_RECORDINGS", True)
+
+        self.recorder = AudioRecorder(
+            output_dir=RECORDINGS_DIR,
+            chunk_duration_sec=chunk_minutes * 60,
+            sample_rate=target_sr,
+            audio_format=audio_format,
+            save_silent_chunks=save_silent,
+            enabled=save_enabled
+        )
 
         self._is_running = False
         self._is_paused = False
@@ -124,6 +143,10 @@ class AudioStreamHandler(QThread):
                             self._is_speech_active = False
                             self.speech_activity_changed.emit(False)
 
+                # Feed to audio recorder for continuous 10-minute chunk persistence
+                if hasattr(self, "recorder") and self.recorder is not None:
+                    self.recorder.feed_chunk(mixed_chunk, speech_present=is_current_speech)
+
             # Calculate total buffered sample count
             current_buffer_samples = sum(len(c) for c in self.mixed_buffer)
 
@@ -148,6 +171,8 @@ class AudioStreamHandler(QThread):
         Shuts down background capturing loops cleanly and joins worker threads.
         """
         self._is_running = False
+        if hasattr(self, "recorder") and self.recorder is not None:
+            self.recorder.flush()
         self.wait()  # Wait for QThread event loop to end
         if self.mic_thread and self.mic_thread.is_alive():
             self.mic_thread.join(timeout=1.0)
@@ -156,9 +181,19 @@ class AudioStreamHandler(QThread):
 
     def pause(self):
         """
-        Pauses recording aggregation.
+        Pauses recording aggregation and flushes active audio chunk.
         """
         self._is_paused = True
+        if hasattr(self, "recorder") and self.recorder is not None:
+            self.recorder.flush()
+
+    def get_current_recording_filename(self) -> str | None:
+        """
+        Returns the filename of the active 10-minute recording chunk if recording.
+        """
+        if hasattr(self, "recorder") and self.recorder is not None:
+            return self.recorder.get_current_recording_filename()
+        return None
 
     def resume(self):
         """
