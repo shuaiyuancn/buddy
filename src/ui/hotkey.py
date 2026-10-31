@@ -40,6 +40,22 @@ for i in range(1, 25):
     VK_MAP[f"f{i}"] = 0x70 + (i - 1)
 
 STANDALONE_MODIFIERS = {0xA5, 0xA4, 0xA3, 0xA2, 0xA1, 0xA0, 0x12, 0x11, 0x10}
+ALT_KEYS = {0xA5, 0xA4, 0x12}
+
+# Unassigned virtual key used as a "menu mask" (same trick as AutoHotkey). Tapping it while Alt
+# is held makes Windows see Alt+<key> instead of a lone Alt tap, so releasing the hotkey does not
+# activate the focused app's menu bar (Chrome, Office, Slack, Explorer) and steal focus from the
+# text field the dictation will be pasted into. Right Alt is a plain Alt on US/Chinese layouts.
+VK_MENU_MASK = 0xE8
+KEYEVENTF_KEYUP = 0x0002
+
+
+def send_menu_mask():
+    if sys.platform != "win32":
+        return
+    user32 = ctypes.windll.user32
+    user32.keybd_event(VK_MENU_MASK, 0, 0, 0)
+    user32.keybd_event(VK_MENU_MASK, 0, KEYEVENTF_KEYUP, 0)
 
 def parse_hotkey(hotkey_str: str) -> tuple[int, int]:
     """
@@ -166,6 +182,8 @@ class GlobalHotkeyListener(QThread):
                 if mod_ok:
                     if not was_pressed:
                         was_pressed = True
+                        if self.vk in ALT_KEYS:
+                            send_menu_mask()
                         self.hotkey_triggered.emit()
                 else:
                     was_pressed = False

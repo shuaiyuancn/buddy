@@ -51,6 +51,11 @@ class AudioStreamHandler(QThread):
         self._is_speech_active = False
         self._silence_hangover_sec = 3
         self._recent_speech_countdown = 0
+        self.current_mic_name = "unknown"
+        self.current_speaker_name = "unknown"
+        # Endpoint ids chosen in the tray menu; empty means follow the Windows default device
+        self.preferred_mic_id = self.config.get("MICROPHONE_DEVICE_ID", "") or ""
+        self.preferred_speaker_id = self.config.get("SPEAKER_DEVICE_ID", "") or ""
         # How often capture threads check whether the Windows default device has changed
         self.device_check_interval_sec = 2.0
         
@@ -84,12 +89,31 @@ class AudioStreamHandler(QThread):
 
         # Orchestration Loop
         while self._is_running:
-            if self._is_paused:
+            # Dictation keeps working while background listening is paused
+            if self._is_paused and not self._is_dictating:
                 time.sleep(0.5)
                 continue
 
             # Every 1.0 second, fetch data from both queues
             time.sleep(1.0)
+
+            # In dictation mode, move microphone audio into the dictation buffer under the lock.
+            # Checking the flag and draining in one step means audio drained here can never be
+            # lost to a stop_dictation() call landing between the drain and the check.
+            with self._dictation_lock:
+                is_dictating = self._is_dictating
+                if is_dictating:
+                    while not self.mic_queue.empty():
+                        self._dictation_buffer.append(self.mic_queue.get_nowait())
+
+            if is_dictating:
+                # Speaker audio is not part of dictation and is not recorded meanwhile
+                while not self.speaker_queue.empty():
+                    self.speaker_queue.get_nowait()
+                continue
+
+            if self._is_paused:
+                continue
 
             mic_chunks = []
             while not self.mic_queue.empty():
@@ -107,16 +131,6 @@ class AudioStreamHandler(QThread):
             if len(mic_data) == 0 and len(spk_data) == 0:
                 mic_data = np.zeros(self.target_sr, dtype=np.float32)
                 spk_data = np.zeros(48000, dtype=np.float32)  # assuming 48k default for speaker
-
-            # If in dictation mode, accumulate microphone chunks into dictation buffer and skip normal aggregation
-            with self._dictation_lock:
-                is_dictating = self._is_dictating
-
-            if is_dictating:
-                if len(mic_data) > 0:
-                    with self._dictation_lock:
-                        self._dictation_buffer.append(mic_data)
-                continue
 
             # Mix down and resample to 16kHz mono
             mixed_chunk = AudioMixer.mix_and_standardize(
@@ -251,10 +265,32 @@ class AudioStreamHandler(QThread):
         except Exception:
             return True
 
+    @staticmethod
+    def _pick_device(preferred_id: str, list_devices, get_default):
+        """
+        Returns the device the user selected (by endpoint id) if it is connected, else the Windows default.
+        An unplugged selection therefore falls back to the default and is picked up again when it returns.
+        """
+        if preferred_id:
+            try:
+                for device in list_devices():
+                    if device.id == preferred_id:
+                        return device
+            except Exception:
+                pass
+        return get_default()
+
+    def _selected_microphone(self):
+        return self._pick_device(self.preferred_mic_id, sc.all_microphones, sc.default_microphone)
+
+    def _selected_speaker(self):
+        return self._pick_device(self.preferred_speaker_id, sc.all_speakers, sc.default_speaker)
+
     def _record_microphone(self):
         """
         Blocking loop for microphone recording with automatic reconnection on device disconnects.
-        Follows the Windows default microphone: when the default changes, the stream is reopened on the new device.
+        Records the microphone selected in the tray menu, or follows the Windows default microphone:
+        whenever the device to use changes, the stream is reopened on the new device.
         """
         samplerate = 16000  # Record natively at target 16kHz mono
         block_duration = 0.1  # Fetch 100ms chunks for low-latency draining
@@ -265,18 +301,19 @@ class AudioStreamHandler(QThread):
             try:
                 # soundcard (WASAPI) queries the live default each time; sounddevice/PortAudio
                 # snapshots the device list at import and never sees newly connected headsets.
-                mic = sc.default_microphone()
+                mic = self._selected_microphone()
                 with mic.recorder(samplerate=samplerate, channels=1) as recorder:
+                    self.current_mic_name = mic.name
                     print(f"[Buddy] Microphone capture opened on: {mic.name}")
                     next_device_check = time.monotonic() + self.device_check_interval_sec
                     while self._is_running:
                         if time.monotonic() >= next_device_check:
                             next_device_check = time.monotonic() + self.device_check_interval_sec
-                            if self._default_device_changed(sc.default_microphone, mic.id):
-                                print("[Buddy] Default microphone changed. Reopening capture...")
+                            if self._default_device_changed(self._selected_microphone, mic.id):
+                                print("[Buddy] Microphone to use changed. Reopening capture...")
                                 break
 
-                        if self._is_paused:
+                        if self._is_paused and not self._is_dictating:
                             time.sleep(0.2)
                             continue
 
@@ -295,7 +332,8 @@ class AudioStreamHandler(QThread):
     def _record_speaker_loopback(self):
         """
         Blocking loop for speaker loopback (WASAPI) with automatic reconnection.
-        Follows the Windows default output: when the default changes, loopback is reopened on the new device.
+        Records the speaker selected in the tray menu, or follows the Windows default output:
+        whenever the device to use changes, loopback is reopened on the new device.
         """
         samplerate = 48000  # Default loopback rate
         block_size = int(samplerate * 1.0)  # 1-second blocks
@@ -303,18 +341,19 @@ class AudioStreamHandler(QThread):
 
         while self._is_running:
             try:
-                speaker = sc.default_speaker()
+                speaker = self._selected_speaker()
                 # Match by endpoint id: name matching is fuzzy and can pick a sibling output
                 # on the same sound card (e.g. "Speakers" vs "2nd output" on Realtek).
                 loopback = sc.get_microphone(id=speaker.id, include_loopback=True)
                 with loopback.recorder(samplerate=samplerate) as recorder:
+                    self.current_speaker_name = speaker.name
                     print(f"[Buddy] Speaker loopback opened on: {speaker.name}")
                     next_device_check = time.monotonic() + self.device_check_interval_sec
                     while self._is_running:
                         if time.monotonic() >= next_device_check:
                             next_device_check = time.monotonic() + self.device_check_interval_sec
-                            if self._default_device_changed(sc.default_speaker, speaker.id):
-                                print("[Buddy] Default speaker changed. Reopening loopback...")
+                            if self._default_device_changed(self._selected_speaker, speaker.id):
+                                print("[Buddy] Speaker to use changed. Reopening loopback...")
                                 break
 
                         if self._is_paused:

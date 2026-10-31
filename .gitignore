@@ -68,3 +68,6 @@ summaries/
 Thumbs.db
 ehthumbs.db
 Desktop.ini
+
+# Generated dictation eval audio (tools/dictation_eval/make_corpus.py)
+tools/dictation_eval/corpus/

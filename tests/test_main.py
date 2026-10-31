@@ -3,6 +3,8 @@ import pytest
 from unittest.mock import patch, MagicMock
 from src.main import main
 
+@patch("src.main.setup_logging")
+@patch("src.main.acquire_single_instance_lock", return_value=True)
 @patch("src.main.check_api_key_or_toast_and_exit")
 @patch("src.main.QApplication")
 @patch("src.main.TranscriberService")
@@ -13,7 +15,9 @@ def test_main_initialization_pipeline(
     mock_audio_handler_class,
     mock_transcriber_class,
     mock_qapp_class,
-    mock_check_key
+    mock_check_key,
+    mock_acquire_lock,
+    mock_setup_logging
 ):
     # Setup mocks
     mock_check_key.return_value = "mocked-api-key"
@@ -49,7 +53,10 @@ def test_main_initialization_pipeline(
         "UPDATE_CHECK_INTERVAL_HOURS": 1,
         "AUTO_START": True,
         "DICTATION_HOTKEY": "right_alt",
-        "DICTATION_MODEL": "gemini-3.5-flash-lite",
+        "DICTATION_MODEL": "gemini-3.1-flash-lite",
+        "DICTATION_THINKING_LEVEL": "",
+        "MICROPHONE_DEVICE_ID": "",
+        "SPEAKER_DEVICE_ID": "",
         "SAVE_AUDIO_RECORDINGS": True,
         "RECORDING_FORMAT": "mp3",
         "RECORDING_CHUNK_MINUTES": 10,

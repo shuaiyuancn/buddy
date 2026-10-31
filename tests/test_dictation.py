@@ -340,21 +340,168 @@ def test_tray_dictation_completed_gui_thread_paste():
         assert len(recent) > 0
         assert recent[0]["text"] == "Dictated output for cursor"
 
-def test_text_injector_releases_alt_modifiers():
+def test_text_injector_releases_held_alt_with_menu_mask():
     """
-    Verifies that _simulate_paste releases Alt modifier keys prior to synthesizing Ctrl+V.
+    A still-held Right Alt is released before Ctrl+V (else it becomes Ctrl+Alt+V), preceded by the
+    menu-mask key so the release does not activate the target app's menu bar.
     """
-    from unittest.mock import patch, call
+    from unittest.mock import patch
+    from src.ui.text_injector import TextInjector
+    from src.ui.hotkey import VK_MENU_MASK
+
+    held = {0xA5}
+    with patch("ctypes.windll.user32.GetAsyncKeyState", side_effect=lambda vk: 0x8000 if vk in held else 0), \
+         patch("ctypes.windll.user32.keybd_event") as mock_keybd:
+        TextInjector._simulate_paste()
+
+    events = [(c[0][0], c[0][2]) for c in mock_keybd.call_args_list]
+    assert events.index((VK_MENU_MASK, 0)) < events.index((0xA5, 2)) < events.index((0x11, 0))
+    assert (0xA4, 2) not in events and (0x12, 2) not in events
+    assert [e for e in events if e[0] in (0x11, 0x56)] == [(0x11, 0), (0x56, 0), (0x56, 2), (0x11, 2)]
+
+
+def test_text_injector_sends_no_stray_alt_keyups_when_alt_is_released():
+    """
+    A lone Alt key-up can itself open the target app's menu bar and swallow the paste,
+    so nothing but Ctrl+V is sent when no Alt key is held.
+    """
+    from unittest.mock import patch
     from src.ui.text_injector import TextInjector
 
-    with patch("ctypes.windll.user32.keybd_event") as mock_keybd:
+    with patch("ctypes.windll.user32.GetAsyncKeyState", return_value=0), \
+         patch("ctypes.windll.user32.keybd_event") as mock_keybd:
         TextInjector._simulate_paste()
-        # Ensure VK_RMENU (0xA5), VK_LMENU (0xA4), VK_MENU (0x12) were called with KEYEVENTF_KEYUP (2)
-        key_ups = [c for c in mock_keybd.call_args_list if c[0][2] == 2]
-        released_vks = [c[0][0] for c in key_ups]
-        assert 0xA5 in released_vks
-        assert 0xA4 in released_vks
-        assert 0x12 in released_vks
+
+    assert [(c[0][0], c[0][2]) for c in mock_keybd.call_args_list] == [(0x11, 0), (0x56, 0), (0x56, 2), (0x11, 2)]
+
+
+def test_hotkey_sends_menu_mask_on_right_alt_press():
+    """
+    Pressing the Right Alt hotkey taps the menu-mask key while Alt is still down, so releasing it
+    is not a lone Alt tap (which would focus the menu bar in Chrome, Slack, Office on non-AltGr layouts).
+    """
+    from unittest.mock import patch
+    from src.ui.hotkey import GlobalHotkeyListener, VK_MENU_MASK
+
+    listener = GlobalHotkeyListener(hotkey="right_alt")
+    fired = []
+    listener.hotkey_triggered.connect(lambda: fired.append(True))
+    states = iter([0x8000, 0x8000, 0])
+
+    def key_state(vk):
+        try:
+            return next(states)
+        except StopIteration:
+            listener._is_running = False
+            return 0
+
+    with patch("ctypes.windll.user32.GetAsyncKeyState", side_effect=key_state), \
+         patch("ctypes.windll.user32.keybd_event") as mock_keybd, \
+         patch("src.ui.hotkey.time.sleep"):
+        listener._is_running = True
+        listener._run_async_key_loop()
+
+    assert fired == [True]
+    assert [(c[0][0], c[0][2]) for c in mock_keybd.call_args_list] == [(VK_MENU_MASK, 0), (VK_MENU_MASK, 2)]
+
+
+def test_hotkey_does_not_mask_non_alt_hotkeys():
+    from unittest.mock import patch
+    from src.ui.hotkey import GlobalHotkeyListener
+
+    listener = GlobalHotkeyListener(hotkey="f9")
+    states = iter([0x8000, 0])
+
+    def key_state(vk):
+        try:
+            return next(states)
+        except StopIteration:
+            listener._is_running = False
+            return 0
+
+    with patch("ctypes.windll.user32.GetAsyncKeyState", side_effect=key_state), \
+         patch("ctypes.windll.user32.keybd_event") as mock_keybd, \
+         patch("src.ui.hotkey.time.sleep"):
+        listener._is_running = True
+        listener._run_async_key_loop()
+
+    mock_keybd.assert_not_called()
+
+
+def test_process_dictation_saves_result_to_local_history(isolate_dictation_history):
+    from unittest.mock import MagicMock
+    from src.ai.transcriber import TranscriberService
+    from src.audio.mixer import AudioMixer
+    import numpy as np
+
+    service = TranscriberService(api_key="fake-key", config_dict={"DICTATION_MODEL": "gemini-3.8-flash"})
+    service.client = MagicMock()
+    service.client.models.generate_content.return_value = MagicMock(text="Ship it on Thursday.")
+    wav_bytes = AudioMixer.convert_to_wav_bytes(np.full(32000, 0.2, dtype=np.float32), sample_rate=16000)
+
+    assert service.process_dictation(wav_bytes) == "Ship it on Thursday."
+
+    files = list(isolate_dictation_history.glob("*.md"))
+    assert len(files) == 1
+    content = files[0].read_text(encoding="utf-8")
+    assert content.startswith("# Buddy Dictations - ")
+    assert "Ship it on Thursday." in content
+    assert "gemini-3.8-flash" in content and "2.0s audio" in content
+
+
+def test_process_dictation_saves_nothing_when_no_speech(isolate_dictation_history):
+    from unittest.mock import MagicMock, patch
+    from src.ai.transcriber import TranscriberService
+    from src.audio.mixer import AudioMixer
+    import numpy as np
+
+    service = TranscriberService(api_key="fake-key")
+    service.client = MagicMock()
+    service.client.models.generate_content.return_value = MagicMock(text="")
+    wav_bytes = AudioMixer.convert_to_wav_bytes(np.zeros(16000, dtype=np.float32), sample_rate=16000)
+
+    with patch.object(service, "transcribe_dictation", return_value=""):
+        assert service.process_dictation(wav_bytes) == ""
+    assert not isolate_dictation_history.exists() or not list(isolate_dictation_history.glob("*.md"))
+
+
+def test_microphone_keeps_recording_for_dictation_while_listening_is_paused():
+    """
+    Pausing background listening must not silently break dictation: the mic thread keeps
+    reading while a dictation is in progress.
+    """
+    from unittest.mock import MagicMock, patch
+    import numpy as np
+    from src.audio.stream_handler import AudioStreamHandler
+
+    handler = AudioStreamHandler(config_dict={"SAVE_AUDIO_RECORDINGS": False})
+    handler._is_running = True
+    handler._is_paused = True
+    handler.start_dictation()
+    reads = []
+
+    class Recorder:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+        def record(self, numframes):
+            reads.append(numframes)
+            if len(reads) >= 3:
+                handler._is_running = False
+            return np.full((numframes, 1), 0.1, dtype=np.float32)
+
+    mic = MagicMock(id="mic")
+    mic.recorder.return_value = Recorder()
+    fake_sc = MagicMock()
+    fake_sc.default_microphone.return_value = mic
+    with patch("src.audio.stream_handler.sc", fake_sc):
+        handler._record_microphone()
+
+    assert len(reads) == 3
+    assert handler.mic_queue.qsize() == 3
 
 def test_process_dictation_single_pass_success():
     """
@@ -425,3 +572,55 @@ def test_text_injector_win32_clipboard_synchronous():
         app = QApplication.instance() or QApplication(sys.argv)
         assert QGuiApplication.clipboard().text() == test_phrase
 
+
+
+def test_process_dictation_uses_recommended_model_by_default():
+    from unittest.mock import MagicMock
+    from src.ai.transcriber import TranscriberService
+    from src.audio.mixer import AudioMixer
+    import numpy as np
+
+    service = TranscriberService(api_key="fake-key", config_dict={})
+    service.client = MagicMock()
+    service.client.models.generate_content.return_value = MagicMock(text="Done.")
+    service.process_dictation(AudioMixer.convert_to_wav_bytes(np.full(16000, 0.2, dtype=np.float32), sample_rate=16000))
+
+    kwargs = service.client.models.generate_content.call_args.kwargs
+    assert kwargs["model"] == "gemini-3.1-flash-lite"
+    assert kwargs["config"] is None
+
+
+def test_process_dictation_passes_configured_thinking_level():
+    from unittest.mock import MagicMock
+    from src.ai.transcriber import TranscriberService
+    from src.audio.mixer import AudioMixer
+    import numpy as np
+
+    service = TranscriberService(api_key="fake-key", config_dict={"DICTATION_MODEL": "gemini-3.5-flash", "DICTATION_THINKING_LEVEL": "minimal"})
+    service.client = MagicMock()
+    service.client.models.generate_content.return_value = MagicMock(text="Done.")
+    service.process_dictation(AudioMixer.convert_to_wav_bytes(np.full(16000, 0.2, dtype=np.float32), sample_rate=16000))
+
+    kwargs = service.client.models.generate_content.call_args.kwargs
+    assert kwargs["model"] == "gemini-3.5-flash"
+    assert kwargs["config"].thinking_config.thinking_level.value.lower() == "minimal"
+
+
+def test_silent_dictation_warns_without_calling_gemini():
+    """A muted mic (digital silence) gets an immediate, specific warning instead of a slow empty API round trip."""
+    from unittest.mock import MagicMock, patch
+    import numpy as np
+    from src.ui.tray_icon import TrayIconController
+    from src.audio.mixer import AudioMixer
+
+    audio = MagicMock(_is_dictating=True, _is_paused=False, current_mic_name="Microphone Array")
+    audio.stop_dictation.return_value = AudioMixer.convert_to_wav_bytes(np.zeros(32000, dtype=np.float32), sample_rate=16000)
+    controller = TrayIconController(audio_handler=audio, transcriber_service=MagicMock(), updater=MagicMock(), config_dict={})
+    with patch.object(controller.executor, "submit") as submit, \
+         patch.object(controller.tray, "showMessage") as toast:
+        controller.on_dictation_hotkey()
+        controller._on_dictation_completed("")
+
+    submit.assert_not_called()
+    assert toast.call_count == 1
+    assert "Microphone Array recorded only silence" in toast.call_args[0][1]

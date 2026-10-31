@@ -22,6 +22,8 @@ a = Analysis(
         'src.ui.text_injector',
         'src.ui.recent_transcripts',
         'src.audio.recorder',
+        'src.logger',
+        'src.single_instance',
     ],
     hookspath=[],
     hooksconfig={},

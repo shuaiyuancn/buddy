@@ -3,6 +3,7 @@ import signal
 from PySide6.QtWidgets import QApplication
 from src.config import check_api_key_or_toast_and_exit, load_full_config, trigger_toast_and_exit
 from src.single_instance import acquire_single_instance_lock
+from src.logger import setup_logging
 from src.autostart import ensure_autostart_state
 from src.audio.stream_handler import AudioStreamHandler
 from src.ai.transcriber import TranscriberService
@@ -18,6 +19,10 @@ def main():
             critical=False,
             exit_code=0
         )
+
+    # Route prints, warnings and crashes into %USERPROFILE%\.buddy\logs\buddy.log (rolls at 1 MB).
+    # Set up after the single-instance check so a second launch never touches the running instance's log.
+    setup_logging()
 
     # 1. Enforce windowless API Key check. Aborts and fires Windows toast notification if missing.
     api_key = check_api_key_or_toast_and_exit()

@@ -1,9 +1,43 @@
 import sys
 import time
+import logging
 import ctypes
 from ctypes import wintypes
 from PySide6.QtGui import QGuiApplication
 from PySide6.QtCore import QCoreApplication
+from src.ui.hotkey import send_menu_mask
+
+def foreground_app_name() -> str:
+    """
+    Executable name of the window that currently has focus (e.g. 'chrome.exe'), for the log.
+    Only the process name is recorded, never the window title, which can contain private text.
+    """
+    if sys.platform != "win32":
+        return "unknown"
+    try:
+        user32 = ctypes.windll.user32
+        kernel32 = ctypes.windll.kernel32
+        hwnd = user32.GetForegroundWindow()
+        if not hwnd:
+            return "none"
+        pid = wintypes.DWORD()
+        user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+        PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+        kernel32.OpenProcess.restype = wintypes.HANDLE
+        handle = kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, pid.value)
+        if not handle:
+            return f"pid {pid.value}"
+        try:
+            buf = ctypes.create_unicode_buffer(512)
+            size = wintypes.DWORD(len(buf))
+            if kernel32.QueryFullProcessImageNameW(handle, 0, buf, ctypes.byref(size)):
+                return buf.value.rsplit("\\", 1)[-1]
+            return f"pid {pid.value}"
+        finally:
+            kernel32.CloseHandle(handle)
+    except Exception:
+        return "unknown"
+
 
 class TextInjector:
     """
@@ -95,7 +129,7 @@ class TextInjector:
             cls._simulate_paste()
             return True
         except Exception as e:
-            print(f"[Warning] Failed to inject text at cursor: {e}")
+            logging.getLogger("buddy.dictation").exception(f"Failed to inject text at cursor: {e}")
             return False
 
     @classmethod
@@ -109,17 +143,19 @@ class TextInjector:
         user32 = ctypes.windll.user32
         VK_CONTROL = 0x11
         VK_V = 0x56
-        VK_MENU = 0x12
         VK_LMENU = 0xA4
         VK_RMENU = 0xA5
         KEYEVENTF_KEYUP = 0x0002
 
-        # Ensure any Alt modifier keys (e.g. Right Alt / AltGr) are released
-        # so Windows does not interpret Ctrl+V as Ctrl+Alt+V
-        for mod_vk in (VK_RMENU, VK_LMENU, VK_MENU):
-            user32.keybd_event(mod_vk, 0, KEYEVENTF_KEYUP, 0)
-
-        time.sleep(0.02)
+        # If an Alt key (e.g. the Right Alt hotkey) is still physically held, release it so Windows
+        # does not interpret Ctrl+V as Ctrl+Alt+V. Only release keys that are actually down: a stray
+        # Alt key-up can itself activate the target app's menu bar and swallow the paste.
+        held_alt = [vk for vk in (VK_RMENU, VK_LMENU) if user32.GetAsyncKeyState(vk) & 0x8000]
+        if held_alt:
+            send_menu_mask()
+            for mod_vk in held_alt:
+                user32.keybd_event(mod_vk, 0, KEYEVENTF_KEYUP, 0)
+            time.sleep(0.02)
 
         # Press Ctrl + V, then release
         user32.keybd_event(VK_CONTROL, 0, 0, 0)

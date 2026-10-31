@@ -11,6 +11,8 @@ from src.version import __version__
 USER_BUDDY_DIR = Path(os.environ.get("USERPROFILE", "C:\\")) / ".buddy"
 TRANSCRIPTS_DIR = USER_BUDDY_DIR / "transcripts"
 RECORDINGS_DIR = USER_BUDDY_DIR / "recordings"
+DICTATIONS_DIR = USER_BUDDY_DIR / "dictations"
+LOGS_DIR = USER_BUDDY_DIR / "logs"
 SUMMARIES_DIR = USER_BUDDY_DIR / "summaries"
 CONFIG_FILE = USER_BUDDY_DIR / "config.json"
 RECENT_TRANSCRIPTS_FILE = USER_BUDDY_DIR / "recent_transcripts.json"
@@ -22,6 +24,8 @@ def initialize_directories():
     """
     TRANSCRIPTS_DIR.mkdir(parents=True, exist_ok=True)
     RECORDINGS_DIR.mkdir(parents=True, exist_ok=True)
+    DICTATIONS_DIR.mkdir(parents=True, exist_ok=True)
+    LOGS_DIR.mkdir(parents=True, exist_ok=True)
 
 def load_config():
     """
@@ -62,7 +66,10 @@ def load_full_config():
         "UPDATE_CHECK_INTERVAL_HOURS": 1,
         "AUTO_START": True,
         "DICTATION_HOTKEY": "right_alt",
-        "DICTATION_MODEL": "gemini-3.5-flash-lite",
+        "DICTATION_MODEL": "gemini-3.1-flash-lite",
+        "DICTATION_THINKING_LEVEL": "",
+        "MICROPHONE_DEVICE_ID": "",
+        "SPEAKER_DEVICE_ID": "",
         "SAVE_AUDIO_RECORDINGS": True,
         "RECORDING_FORMAT": "mp3",
         "RECORDING_CHUNK_MINUTES": 10,
@@ -92,10 +99,17 @@ def load_full_config():
 def save_config_key(key: str, value) -> bool:
     """
     Updates or inserts a key-value pair in CONFIG_FILE.
+    Only the keys already in the file plus this one are written: persisting every default would
+    pin them (e.g. DICTATION_MODEL) and stop future releases from improving them.
     Returns True if successfully saved, False otherwise.
     """
     try:
-        current_config = load_full_config()
+        current_config = {}
+        if CONFIG_FILE.exists():
+            with open(CONFIG_FILE, "r", encoding="utf-8") as f:
+                loaded = json.load(f)
+            if isinstance(loaded, dict):
+                current_config = loaded
         current_config[key] = value
         with open(CONFIG_FILE, "w", encoding="utf-8") as f:
             json.dump(current_config, f, indent=4)

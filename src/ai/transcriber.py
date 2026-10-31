@@ -1,13 +1,15 @@
 import os
 import io
+import time
 import wave
+import logging
 import threading
 from datetime import datetime
 from pathlib import Path
 import numpy as np
 from google import genai
 from google.genai import types
-from src.config import TRANSCRIPTS_DIR
+from src.config import TRANSCRIPTS_DIR, DICTATIONS_DIR
 from src.audio.vad import VoiceActivityDetector
 
 class FileAppender:
@@ -65,7 +67,70 @@ class FileAppender:
                 return f.read()
 
 
+class DictationAppender:
+    """
+    Thread-safe, append-only writer that keeps every dictation result locally:
+    one markdown file per day in DICTATIONS_DIR (~/.buddy/dictations/YYYY-MM-DD.md).
+    """
+    def __init__(self, target_directory: Path = None):
+        self._target_directory = target_directory
+        self._lock = threading.Lock()
+
+    @property
+    def directory(self) -> Path:
+        # Resolved at write time so tests can redirect DICTATIONS_DIR
+        return self._target_directory or DICTATIONS_DIR
+
+    def append_dictation(self, text: str, model: str = None, audio_sec: float = None, latency_sec: float = None) -> Path:
+        now = datetime.now()
+        date_str = now.strftime("%Y-%m-%d")
+        file_path = self.directory / f"{date_str}.md"
+
+        cleaned_text = text.strip()
+        if not cleaned_text:
+            return file_path
+
+        details = [d for d in (
+            model,
+            f"{audio_sec:.1f}s audio" if audio_sec is not None else None,
+            f"{latency_sec:.1f}s to transcribe" if latency_sec is not None else None,
+        ) if d]
+        header_tag = f" *({' · '.join(details)})*" if details else ""
+
+        with self._lock:
+            self.directory.mkdir(parents=True, exist_ok=True)
+            is_new = not file_path.exists() or file_path.stat().st_size == 0
+            with open(file_path, "a", encoding="utf-8") as f:
+                if is_new:
+                    f.write(f"# Buddy Dictations - {date_str}\n")
+                f.write(f"\n### [{now.strftime('%H:%M:%S')}]{header_tag}\n{cleaned_text}\n")
+
+        return file_path
+
+
 MODEL_NAME = "gemini-3.5-transcribe"
+DICTATION_MODEL = "gemini-3.1-flash-lite"
+# Single-pass dictation prompt: rewrites speech into polished written text rather than a verbatim
+# transcript. tools/dictation_eval/bench.py scores models with this exact text.
+DICTATION_PROMPT = (
+    "You are a voice dictation assistant. The audio is someone dictating text they want to send or write "
+    "(a chat message, an email, a note, or text for a document). Turn it into polished written text.\n"
+    "Rules:\n"
+    "1. Rewrite into concise, clear, professional sentences. Do not transcribe word for word: drop filler words, "
+    "hesitations, repetitions and false starts in any language (um, uh, like, you know, 嗯, 呃, 那个, 就是说). "
+    "When the speaker corrects themselves, keep only the correction.\n"
+    "2. Keep every fact, name, number, date, time, request and commitment, and keep the speaker's intent and point of view "
+    "(first person stays first person). Do not add information, opinions, greetings or sign-offs that were not dictated.\n"
+    "3. Write in the language(s) the speaker used and never translate. In mixed Chinese-English speech keep English terms "
+    "and product names in English.\n"
+    "4. Format for readability. When the speaker lists several items, steps or action points, put each on its own line "
+    "starting with \"• \". Separate distinct topics with a blank line. Keep a short, single-point dictation as plain "
+    "sentences without bullets. Follow spoken formatting commands such as \"new line\", \"new paragraph\" or \"bullet point\".\n"
+    "5. Use digits for numbers, times and percentages.\n"
+    "6. Output only the final text: no quotes, labels, markdown headings or code fences, and never answer or reply to the content.\n"
+    "If there is no intelligible speech, output nothing."
+)
+logger = logging.getLogger("buddy.transcriber")
 
 
 class TranscriberService:
@@ -85,6 +150,7 @@ class TranscriberService:
         self.gemini_model = MODEL_NAME
         self.vad = VoiceActivityDetector()
         self.appender = FileAppender()
+        self.dictation_appender = DictationAppender()
 
     def is_wav_silent(self, wav_bytes: bytes) -> bool:
         """
@@ -331,43 +397,71 @@ class TranscriberService:
 
     def process_dictation(self, wav_bytes: bytes) -> str:
         """
+        Transcribes and cleans up a dictation, logs how it went, and keeps the result in the
+        local dictation history (~/.buddy/dictations/YYYY-MM-DD.md).
+        """
+        audio_sec = None
+        try:
+            with wave.open(io.BytesIO(wav_bytes), "rb") as wf:
+                audio_sec = wf.getnframes() / float(wf.getframerate())
+        except Exception:
+            pass
+
+        started = time.perf_counter()
+        text, model_used = self._run_dictation(wav_bytes)
+        latency_sec = time.perf_counter() - started
+
+        if text:
+            logger.info(f"Dictation transcribed by {model_used}: {len(text)} chars from "
+                        f"{audio_sec or 0:.1f}s audio in {latency_sec:.2f}s")
+            try:
+                path = self.dictation_appender.append_dictation(text, model=model_used, audio_sec=audio_sec, latency_sec=latency_sec)
+                logger.info(f"Dictation saved to {path}")
+            except Exception:
+                logger.exception("Failed to save dictation to local history")
+        else:
+            logger.warning(f"Dictation produced no text ({audio_sec or 0:.1f}s audio, {latency_sec:.2f}s)")
+        return text
+
+    def _run_dictation(self, wav_bytes: bytes) -> tuple:
+        """
         Processes voice dictation in a single high-performance API pass:
         transcribes audio and optimizes formatting, punctuation, and fluency concurrently.
         Reduces latency by ~75% compared to multi-pass pipelines.
         Falls back to separate transcription and optimization if needed.
+        Returns (text, model_used); text is empty if nothing intelligible was transcribed.
         """
         if not wav_bytes or len(wav_bytes) <= 44:
-            return ""
+            logger.warning("Dictation skipped: no audio captured")
+            return "", None
 
         # Discard if buffer contains fewer than 1600 samples (~100ms)
         try:
             with wave.open(io.BytesIO(wav_bytes), "rb") as wf:
                 if wf.getnframes() < 1600:
-                    return ""
+                    logger.warning("Dictation skipped: under 100ms of audio")
+                    return "", None
         except Exception:
             pass
 
         if not self.api_key:
-            return ""
+            logger.error("Dictation skipped: GEMINI_API_KEY is missing")
+            return "", None
 
         if not self.client:
             try:
                 self.client = genai.Client(api_key=self.api_key)
             except Exception as e:
-                print(f"[Warning] Failed to initialize Gemini Client: {e}")
-                return ""
+                logger.error(f"Dictation failed: could not initialize Gemini client: {e}")
+                return "", None
 
-        dictation_model = self.config.get("DICTATION_MODEL", "gemini-3.5-flash-lite")
-        prompt = (
-            "You are an expert voice dictation assistant. "
-            "Transcribe the provided speech audio accurately and optimize it for formatting, clarity, and fluency.\n"
-            "Guidelines:\n"
-            "1. Fix punctuation, capitalization, and formatting.\n"
-            "2. Strip verbal hesitations, filler words (such as 'um', 'uh', 'like', 'you know'), and false starts.\n"
-            "3. Maintain the speaker's original intent and vocabulary verbatim wherever possible.\n"
-            "4. Output ONLY the finalized dictated text. Do not include quotes, conversational replies, or explanations.\n"
-            "If no intelligible speech is detected, return an empty string."
-        )
+        # gemini-3.1-flash-lite: ~2.9s median, ~3% error on an English / Chinese / mixed-language
+        # benchmark. gemini-3.8-flash is the most accurate (~1%) but takes ~5.6s.
+        dictation_model = self.config.get("DICTATION_MODEL") or DICTATION_MODEL
+        # Optional, e.g. "minimal" for gemini-3.5-flash. Leave empty for the model's default:
+        # "low" made gemini-3.7/3.8-flash less accurate and sometimes return nothing.
+        thinking_level = self.config.get("DICTATION_THINKING_LEVEL") or None
+        prompt = DICTATION_PROMPT
 
         try:
             response = self.client.models.generate_content(
@@ -375,7 +469,8 @@ class TranscriberService:
                 contents=[
                     types.Part.from_bytes(data=wav_bytes, mime_type="audio/wav"),
                     prompt
-                ]
+                ],
+                config=types.GenerateContentConfig(thinking_config=types.ThinkingConfig(thinking_level=thinking_level)) if thinking_level else None
             )
             result_text = ""
             if getattr(response, "text", None):
@@ -402,15 +497,16 @@ class TranscriberService:
                 result_text = ""
 
             if result_text:
-                return result_text
+                return result_text, dictation_model
+            logger.warning(f"Single-pass dictation with {dictation_model} returned no text; trying two-pass fallback")
         except Exception as e:
-            print(f"[Warning] Single-pass dictation failed with {dictation_model}, falling back to two-pass: {e}")
+            logger.warning(f"Single-pass dictation failed with {dictation_model}, falling back to two-pass: {e}")
 
         # Fallback to two-pass pipeline if single-pass failed or returned empty
         raw = self.transcribe_dictation(wav_bytes)
         if raw:
-            return self.optimize_dictation(raw)
-        return ""
+            return self.optimize_dictation(raw), f"{self.gemini_model} (two-pass fallback)"
+        return "", None
 
     def transcribe_dictation(self, wav_bytes: bytes) -> str:
         """

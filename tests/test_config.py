@@ -133,3 +133,16 @@ def test_save_config_key(clean_env):
     assert cfg2.get("AUTO_START") is True
 
 
+
+
+def test_save_config_key_does_not_pin_defaults():
+    from src.config import save_config_key, load_full_config
+    src.config.USER_BUDDY_DIR.mkdir(parents=True, exist_ok=True)
+    with open(src.config.CONFIG_FILE, "w", encoding="utf-8") as f:
+        json.dump({"GEMINI_API_KEY": "k"}, f)
+
+    assert save_config_key("AUTO_START", False) is True
+
+    with open(src.config.CONFIG_FILE, "r", encoding="utf-8") as f:
+        assert json.load(f) == {"GEMINI_API_KEY": "k", "AUTO_START": False}
+    assert load_full_config()["DICTATION_MODEL"] == "gemini-3.1-flash-lite"

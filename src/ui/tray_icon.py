@@ -1,19 +1,29 @@
+import io
 import os
 import sys
+import wave
+import logging
 import threading
 import concurrent.futures
+import numpy as np
 import webbrowser
 from datetime import datetime, timedelta
 from pathlib import Path
 from PySide6.QtWidgets import QSystemTrayIcon, QMenu, QMessageBox
 from PySide6.QtGui import QIcon, QPixmap, QPainter, QColor, QPen, QGuiApplication
 from PySide6.QtCore import QObject, Slot, Qt, QTimer, Signal
-from src.config import TRANSCRIPTS_DIR, RECORDINGS_DIR, APP_VERSION, save_config_key
+from src.config import TRANSCRIPTS_DIR, RECORDINGS_DIR, DICTATIONS_DIR, LOGS_DIR, APP_VERSION, save_config_key
 from src.updater import AutoUpdater
 from src.autostart import is_autostart_enabled, set_autostart_enabled
 from src.ui.recent_transcripts import RecentTranscriptsManager
 from src.ui.hotkey import GlobalHotkeyListener
-from src.ui.text_injector import TextInjector
+from src.ui.text_injector import TextInjector, foreground_app_name
+
+logger = logging.getLogger("buddy.dictation")
+
+# Speech peaks well above -40 dBFS; even a quiet room on a live mic peaks around -60 dBFS.
+# A peak below this means the microphone delivered digital silence (muted or no input).
+SILENT_PEAK_DBFS = -70.0
 
 class TrayIconController(QObject):
     """
@@ -232,6 +242,14 @@ class TrayIconController(QObject):
 
         self.menu.addSeparator()
 
+        # Device pickers, rebuilt each time they open so newly connected devices appear
+        self.mic_menu = self.menu.addMenu("Microphone")
+        self.mic_menu.aboutToShow.connect(lambda: self._populate_device_menu("microphone"))
+        self.speaker_menu = self.menu.addMenu("Speaker")
+        self.speaker_menu.aboutToShow.connect(lambda: self._populate_device_menu("speaker"))
+
+        self.menu.addSeparator()
+
         # Recent Dictations submenu
         self.recent_menu = self.menu.addMenu("Recent Dictations")
         self._update_recent_menu()
@@ -241,6 +259,12 @@ class TrayIconController(QObject):
 
         open_recordings_action = self.menu.addAction("Open Recordings Folder")
         open_recordings_action.triggered.connect(self.on_open_recordings_folder)
+
+        open_dictations_action = self.menu.addAction("Open Dictations Folder")
+        open_dictations_action.triggered.connect(lambda: self._open_folder(DICTATIONS_DIR))
+
+        open_logs_action = self.menu.addAction("Open Logs Folder")
+        open_logs_action.triggered.connect(lambda: self._open_folder(LOGS_DIR))
 
         self.menu.addSeparator()
 
@@ -372,6 +396,54 @@ class TrayIconController(QObject):
         """
         if RECORDINGS_DIR.exists():
             os.startfile(str(RECORDINGS_DIR))
+
+    @staticmethod
+    def _open_folder(path: Path):
+        path.mkdir(parents=True, exist_ok=True)
+        os.startfile(str(path))
+
+    def _populate_device_menu(self, kind: str):
+        """
+        Lists the connected microphones or speakers with the current choice checked.
+        "System default" follows Windows (and a plugged-in headset); picking a device pins it.
+        """
+        import soundcard as sc
+        is_mic = kind == "microphone"
+        menu = self.mic_menu if is_mic else self.speaker_menu
+        attr = "preferred_mic_id" if is_mic else "preferred_speaker_id"
+        selected = getattr(self.audio_handler, attr, "") or ""
+        menu.clear()
+        try:
+            devices = sc.all_microphones() if is_mic else sc.all_speakers()
+            default = sc.default_microphone() if is_mic else sc.default_speaker()
+            default_name = default.name
+        except Exception:
+            logger.exception(f"Failed to list {kind}s")
+            devices, default_name = [], "unavailable"
+
+        default_action = menu.addAction(f"System default ({default_name})")
+        default_action.setCheckable(True)
+        default_action.setChecked(not selected)
+        default_action.triggered.connect(lambda: self._select_device(kind, "", "System default"))
+        menu.addSeparator()
+
+        listed_ids = set()
+        for device in devices:
+            listed_ids.add(device.id)
+            action = menu.addAction(device.name)
+            action.setCheckable(True)
+            action.setChecked(device.id == selected)
+            action.triggered.connect(lambda checked=False, d=device: self._select_device(kind, d.id, d.name))
+        if selected and selected not in listed_ids:
+            missing = menu.addAction("Selected device is not connected; using the system default")
+            missing.setEnabled(False)
+
+    def _select_device(self, kind: str, device_id: str, name: str):
+        """Applies a device choice (the capture thread switches within ~2s) and remembers it in config.json."""
+        is_mic = kind == "microphone"
+        setattr(self.audio_handler, "preferred_mic_id" if is_mic else "preferred_speaker_id", device_id)
+        save_config_key("MICROPHONE_DEVICE_ID" if is_mic else "SPEAKER_DEVICE_ID", device_id)
+        logger.info(f"{kind.capitalize()} set to {name}" + (f" ({device_id})" if device_id else ""))
 
     @Slot(str)
     def show_warning_notification(self, text: str):
@@ -511,14 +583,45 @@ class TrayIconController(QObject):
             # Start dictation
             self.audio_handler.start_dictation()
             self.set_status("dictating")
+            logger.info(f"Dictation started (target app: {foreground_app_name()}, "
+                        f"microphone: {getattr(self.audio_handler, 'current_mic_name', 'unknown')}, "
+                        f"listening paused: {getattr(self.audio_handler, '_is_paused', False)})")
         else:
             # Stop dictation
             wav_bytes = self.audio_handler.stop_dictation()
             self.set_status("active")
-            if wav_bytes:
+            duration, peak_db = self._describe_audio(wav_bytes)
+            peak_text = f"{peak_db:.0f} dBFS" if peak_db is not None else "unknown"
+            logger.info(f"Dictation stopped: {duration:.1f}s of audio, peak {peak_text}")
+            if wav_bytes and peak_db is not None and peak_db < SILENT_PEAK_DBFS:
+                mic = getattr(self.audio_handler, "current_mic_name", "the microphone")
+                self._notify_dictation_problem(f"{mic} recorded only silence. Is it muted?")
+                self._dictation_feedback_given = True
+                self.dictation_completed.emit("")
+            elif wav_bytes:
                 self.executor.submit(self._process_dictation_async, wav_bytes)
             else:
                 self.dictation_completed.emit("")
+
+    @staticmethod
+    def _describe_audio(wav_bytes: bytes) -> tuple:
+        """
+        Returns (duration_sec, peak_dBFS) of a 16-bit WAV, for the log; peak is None if unreadable. A peak near -90 dBFS
+        means the microphone delivered digital silence (muted, wrong device, or no input).
+        """
+        try:
+            with wave.open(io.BytesIO(wav_bytes), "rb") as wf:
+                frames = wf.readframes(wf.getnframes())
+                duration = wf.getnframes() / float(wf.getframerate())
+            samples = np.frombuffer(frames, dtype=np.int16)
+            peak = float(np.max(np.abs(samples))) / 32768.0 if len(samples) else 0.0
+            return duration, 20 * np.log10(max(peak, 1e-6))
+        except Exception:
+            return 0.0, None
+
+    def _notify_dictation_problem(self, message: str):
+        logger.warning(f"Dictation problem: {message}")
+        self.tray.showMessage("Buddy Dictation", message, QSystemTrayIcon.MessageIcon.Warning, 4000)
 
     def _process_dictation_async(self, wav_bytes: bytes):
         """
@@ -529,8 +632,8 @@ class TrayIconController(QObject):
             # High-performance single-pass transcription & optimization (with automatic fallback)
             final_text = self.transcriber.process_dictation(wav_bytes)
             self.dictation_completed.emit(final_text)
-        except Exception as e:
-            print(f"[Warning] Dictation processing error: {e}")
+        except Exception:
+            logger.exception("Dictation processing error")
             self.dictation_completed.emit("")
 
     @Slot(str)
@@ -540,10 +643,17 @@ class TrayIconController(QObject):
         """
         if text:
             # Output to current cursor position on the Main GUI thread (where QClipboard works)
-            TextInjector.paste_text(text)
+            target = foreground_app_name()
+            pasted = TextInjector.paste_text(text)
+            logger.info(f"Dictation {'pasted into' if pasted else 'FAILED to paste into'} {target}")
+            if not pasted:
+                self._notify_dictation_problem("Couldn't paste the dictation. It's in Recent Dictations; click it to copy.")
 
             # Store in recent history
             self.recent_transcripts.add_transcript(text)
+        elif getattr(self.audio_handler, "_is_dictating", False) is False and not getattr(self, "_dictation_feedback_given", False):
+            self._notify_dictation_problem("No speech was recognized. Check that your microphone is not muted.")
+        self._dictation_feedback_given = False
 
         self._update_recent_menu()
         if getattr(self.audio_handler, "_is_paused", False) is True:
