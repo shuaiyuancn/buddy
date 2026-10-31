@@ -5,6 +5,7 @@ prompt Buddy ships (src.ai.transcriber.DICTATION_PROMPT).
   python tools/dictation_eval/bench.py --models gemini-3.1-flash-lite,gemini-3.5-flash:minimal,gemini-3.8-flash --runs 2
 
 A model may carry a thinking level after a colon (e.g. gemini-3.5-flash:minimal).
+--vocabulary sends a vocabulary file exactly as Buddy sends ~/.buddy/dictation_vocabulary.txt.
 
 Dictation rewrites speech into polished text, so outputs are not compared word for word. A judge
 model scores each output from 1 to 5 against what was actually said:
@@ -24,7 +25,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from src.config import check_api_key_or_toast_and_exit  # noqa: E402
-from src.ai.transcriber import DICTATION_PROMPT  # noqa: E402
+from src.ai.transcriber import DICTATION_PROMPT, dictation_generate_config  # noqa: E402
+from src.ai.vocabulary import load_vocabulary_instruction  # noqa: E402
 from google import genai  # noqa: E402
 from google.genai import types  # noqa: E402
 
@@ -62,8 +64,8 @@ JUDGE_SCHEMA = {
 }
 
 
-def dictate(client, model: str, thinking: str, wav: bytes) -> tuple:
-    config = types.GenerateContentConfig(thinking_config=types.ThinkingConfig(thinking_level=thinking)) if thinking else None
+def dictate(client, model: str, thinking: str, wav: bytes, vocabulary: str) -> tuple:
+    config = dictation_generate_config(thinking, vocabulary)
     started = time.perf_counter()
     try:
         response = client.models.generate_content(
@@ -88,8 +90,8 @@ def judge(client, ref: dict, output: str) -> dict:
     return {"fidelity": None, "clarity": None, "formatting": None, "issues": f"judge failed: {last}"}
 
 
-def run_once(client, model, thinking, sid, wav, ref) -> dict:
-    text, sec, error = dictate(client, model, thinking, wav)
+def run_once(client, model, thinking, sid, wav, ref, vocabulary) -> dict:
+    text, sec, error = dictate(client, model, thinking, wav, vocabulary)
     scores = judge(client, ref, text) if not error else {}
     return {"model": model, "thinking": thinking, "sid": sid, "sec": sec, "text": text, "error": error, **scores}
 
@@ -105,6 +107,7 @@ def main():
     parser.add_argument("--runs", type=int, default=2)
     parser.add_argument("--workers", type=int, default=6)
     parser.add_argument("--corpus", default=str(Path(__file__).parent / "corpus"))
+    parser.add_argument("--vocabulary", default=None, help="Optional vocabulary file, sent the way Buddy sends the user's")
     parser.add_argument("--results", default=None, help="Optional path to write every individual result as JSON")
     args = parser.parse_args()
 
@@ -113,10 +116,11 @@ def main():
     wavs = {sid: (corpus / f"{sid}.wav").read_bytes() for sid in refs}
     configs = [(m.split(":")[0], m.split(":")[1] if ":" in m else None) for m in args.models.split(",")]
     client = genai.Client(api_key=check_api_key_or_toast_and_exit())
+    vocabulary = load_vocabulary_instruction(Path(args.vocabulary)) if args.vocabulary else ""
 
     jobs = [(m, t, sid) for m, t in configs for sid in refs for _ in range(args.runs)]
     with cf.ThreadPoolExecutor(args.workers) as pool:
-        results = list(pool.map(lambda j: run_once(client, j[0], j[1], j[2], wavs[j[2]], refs[j[2]]), jobs))
+        results = list(pool.map(lambda j: run_once(client, j[0], j[1], j[2], wavs[j[2]], refs[j[2]], vocabulary), jobs))
     if args.results:
         Path(args.results).write_text(json.dumps(results, ensure_ascii=False, indent=1), encoding="utf-8")
 

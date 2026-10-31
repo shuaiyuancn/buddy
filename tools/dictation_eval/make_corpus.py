@@ -32,42 +32,42 @@ from google.genai import types  # noqa: E402
 
 # (id, what the voice says, an ideal dictation result)
 SAPI_SAMPLES = [
-    ("s1", "Um, so I wanted to, uh, follow up on the quarterly planning doc. Can you send me the latest numbers for the B plus marketplace by Friday?",
-     "I wanted to follow up on the quarterly planning doc. Can you send me the latest numbers for the B+ marketplace by Friday?"),
-    ("s2", "Let's schedule the review for Tuesday at three p.m. and invite Heiko, Sunil and Benoit. Actually, make that four p.m.",
-     "Let's schedule the review for Tuesday at 4 p.m. and invite Heiko, Sunil and Benoit."),
-    ("s3", "The bid floor model improved revenue by two point three percent in the A B test, but latency went up by eight milliseconds.",
-     "The bid floor model improved revenue by 2.3% in the A/B test, but latency went up by 8 ms."),
+    ("s1", "Um, so I wanted to, uh, follow up on the quarterly planning doc. Can you send me the latest numbers for the EMEA region by Friday?",
+     "I wanted to follow up on the quarterly planning doc. Can you send me the latest numbers for the EMEA region by Friday?"),
+    ("s2", "Let's schedule the review for Tuesday at three p.m. and invite Thibault, Siobhan and Anuj. Actually, make that four p.m.",
+     "Let's schedule the review for Tuesday at 4 p.m. and invite Thibault, Siobhan and Anuj."),
+    ("s3", "The pricing model improved revenue by two point three percent in the A B test, but latency went up by eight milliseconds.",
+     "The pricing model improved revenue by 2.3% in the A/B test, but latency went up by 8 ms."),
 ]
 
 GEMINI_SAMPLES = [
     ("g1_en_fillers", "So, um, I think we should, uh, push the launch to next Wednesday, no wait, Thursday, because the, um, the data pipeline isn't ready yet.",
      "I think we should push the launch to next Thursday because the data pipeline isn't ready yet."),
-    ("g2_en_jargon", "Can you check the BigQuery table for the P plus marketplace and see why the RTI latency spiked after the adserver deploy on Monday?",
-     "Can you check the BigQuery table for the P+ marketplace and see why the RTI latency spiked after the adserver deploy on Monday?"),
+    ("g2_en_jargon", "Can you check the BigQuery table for the EU region and see why the Kafka consumer lag spiked after the API gateway deploy on Monday?",
+     "Can you check the BigQuery table for the EU region and see why the Kafka consumer lag spiked after the API gateway deploy on Monday?"),
     ("g3_zh", "我们下周二下午三点开会，讨论第四季度的预算，请大家提前准备好数据。",
      "我们下周二下午3点开会，讨论第四季度的预算，请大家提前准备好数据。"),
-    ("g4_mixed", "我刚看了一下 BigQuery 的数据，B plus marketplace 的 revenue 上周涨了百分之五，主要是因为 floor optimization 的模型上线了。",
-     "我刚看了一下BigQuery的数据，B+ marketplace的revenue上周涨了5%，主要是因为floor optimization的模型上线了。"),
-    ("g5_en_list", "Hey team, um, quick update on the launch. So first, the dashboard is, uh, basically done, Sunil just needs to review it. "
-     "Second, the pipeline is still, like, a bit flaky, so Heiko is looking into the retries. And, um, third, we need someone to book "
+    ("g4_mixed", "我刚看了一下 BigQuery 的数据，EU region 的 revenue 上周涨了百分之五，主要是因为 pricing model 上线了。",
+     "我刚看了一下BigQuery的数据，EU region的revenue上周涨了5%，主要是因为pricing model上线了。"),
+    ("g5_en_list", "Hey team, um, quick update on the launch. So first, the dashboard is, uh, basically done, Siobhan just needs to review it. "
+     "Second, the pipeline is still, like, a bit flaky, so Thibault is looking into the retries. And, um, third, we need someone to book "
      "the room for the demo on Thursday at two. Oh and, uh, please send me your slides by Wednesday.",
      "Quick update on the launch:\n"
-     "• The dashboard is done; Sunil needs to review it.\n"
-     "• The pipeline is still flaky; Heiko is looking into the retries.\n"
+     "• The dashboard is done; Siobhan needs to review it.\n"
+     "• The pipeline is still flaky; Thibault is looking into the retries.\n"
      "• Someone needs to book the room for the demo on Thursday at 2.\n"
      "\n"
      "Please send me your slides by Wednesday."),
-    ("g6_zh_list", "大家好，嗯，跟大家同步一下这周的进展。第一个是，那个，BigQuery 的表已经迁移完了。第二个就是，呃，floor optimization 的实验还在跑，"
-     "预计周五出结果。还有就是，下周一我们要跟 Freddy 开个会，讨论一下 Q4 的规划，大家记得准备一下。",
+    ("g6_zh_list", "大家好，嗯，跟大家同步一下这周的进展。第一个是，那个，BigQuery 的表已经迁移完了。第二个就是，呃，pricing 的实验还在跑，"
+     "预计周五出结果。还有就是，下周一我们要跟 Ngozi 开个会，讨论一下 Q4 的规划，大家记得准备一下。",
      "同步一下本周进展：\n"
      "• BigQuery的表已迁移完成。\n"
-     "• floor optimization实验仍在进行，预计周五出结果。\n"
-     "• 下周一与Freddy开会讨论Q4规划，请大家提前准备。"),
-    ("g7_en_email", "Hi Csaba, so, um, I wanted to let you know that, uh, the hiring for the data engineering manager role in Dublin is, you know, "
+     "• pricing实验仍在进行，预计周五出结果。\n"
+     "• 下周一与Ngozi开会讨论Q4规划，请大家提前准备。"),
+    ("g7_en_email", "Hi Ngozi, so, um, I wanted to let you know that, uh, the hiring for the platform engineer role in Lisbon is, you know, "
      "moving along, we have two candidates in the final round, and, um, I think we can probably make an offer by the end of next week, "
      "assuming the references come back fine.",
-     "Hi Csaba, the hiring for the Data Engineering Manager role in Dublin is progressing. We have two candidates in the final round "
+     "Hi Ngozi, the hiring for the Platform Engineer role in Lisbon is progressing. We have two candidates in the final round "
      "and expect to make an offer by the end of next week, assuming the references come back fine."),
 ]
 BULLET_SAMPLES = {"g5_en_list", "g6_zh_list"}

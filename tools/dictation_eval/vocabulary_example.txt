@@ -1,0 +1,10 @@
+# Example vocabulary for the evaluation clips (fictional names, generic terms).
+# Run: python tools/dictation_eval/bench.py --vocabulary tools/dictation_eval/vocabulary_example.txt
+Thibault
+Siobhan
+Anuj
+Ngozi
+BigQuery
+Kafka
+EMEA
+Shivon -> Siobhan

@@ -18,6 +18,7 @@ from src.autostart import is_autostart_enabled, set_autostart_enabled
 from src.ui.recent_transcripts import RecentTranscriptsManager
 from src.ui.hotkey import GlobalHotkeyListener
 from src.ui.text_injector import TextInjector, foreground_app_name
+from src.ai.vocabulary import ensure_vocabulary_file
 
 logger = logging.getLogger("buddy.dictation")
 
@@ -263,6 +264,9 @@ class TrayIconController(QObject):
         open_dictations_action = self.menu.addAction("Open Dictations Folder")
         open_dictations_action.triggered.connect(lambda: self._open_folder(DICTATIONS_DIR))
 
+        edit_vocabulary_action = self.menu.addAction("Edit Dictation Vocabulary")
+        edit_vocabulary_action.triggered.connect(self.on_edit_vocabulary)
+
         open_logs_action = self.menu.addAction("Open Logs Folder")
         open_logs_action.triggered.connect(lambda: self._open_folder(LOGS_DIR))
 
@@ -400,6 +404,12 @@ class TrayIconController(QObject):
     @staticmethod
     def _open_folder(path: Path):
         path.mkdir(parents=True, exist_ok=True)
+        os.startfile(str(path))
+
+    def on_edit_vocabulary(self):
+        """Opens the personal dictation vocabulary in the default text editor, creating it with instructions if needed."""
+        path = ensure_vocabulary_file()
+        logger.info(f"Opening dictation vocabulary at {path}")
         os.startfile(str(path))
 
     def _populate_device_menu(self, kind: str):

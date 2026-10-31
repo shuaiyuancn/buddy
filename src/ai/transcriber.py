@@ -11,6 +11,7 @@ from google import genai
 from google.genai import types
 from src.config import TRANSCRIPTS_DIR, DICTATIONS_DIR
 from src.audio.vad import VoiceActivityDetector
+from src.ai.vocabulary import load_vocabulary_instruction
 
 class FileAppender:
     """
@@ -131,6 +132,16 @@ DICTATION_PROMPT = (
     "If there is no intelligible speech, output nothing."
 )
 logger = logging.getLogger("buddy.transcriber")
+
+
+def dictation_generate_config(thinking_level: str = None, vocabulary_instruction: str = ""):
+    """Request config for a dictation call: optional thinking level and the user's vocabulary glossary."""
+    kwargs = {}
+    if thinking_level:
+        kwargs["thinking_config"] = types.ThinkingConfig(thinking_level=thinking_level)
+    if vocabulary_instruction:
+        kwargs["system_instruction"] = vocabulary_instruction
+    return types.GenerateContentConfig(**kwargs) if kwargs else None
 
 
 class TranscriberService:
@@ -455,22 +466,20 @@ class TranscriberService:
                 logger.error(f"Dictation failed: could not initialize Gemini client: {e}")
                 return "", None
 
-        # gemini-3.1-flash-lite: ~2.9s median, ~3% error on an English / Chinese / mixed-language
-        # benchmark. gemini-3.8-flash is the most accurate (~1%) but takes ~5.6s.
+        # See docs/dictation-model-evaluation.md for how the default was chosen
         dictation_model = self.config.get("DICTATION_MODEL") or DICTATION_MODEL
         # Optional, e.g. "minimal" for gemini-3.5-flash. Leave empty for the model's default:
         # "low" made gemini-3.7/3.8-flash less accurate and sometimes return nothing.
         thinking_level = self.config.get("DICTATION_THINKING_LEVEL") or None
-        prompt = DICTATION_PROMPT
 
         try:
             response = self.client.models.generate_content(
                 model=dictation_model,
                 contents=[
                     types.Part.from_bytes(data=wav_bytes, mime_type="audio/wav"),
-                    prompt
+                    DICTATION_PROMPT
                 ],
-                config=types.GenerateContentConfig(thinking_config=types.ThinkingConfig(thinking_level=thinking_level)) if thinking_level else None
+                config=dictation_generate_config(thinking_level, load_vocabulary_instruction())
             )
             result_text = ""
             if getattr(response, "text", None):

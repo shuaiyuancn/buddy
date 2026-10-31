@@ -34,6 +34,7 @@ The installer will:
 * **Smart Dictation Mode**:
   * **Global Hotkey**: Press **Right Alt** (configurable via `DICTATION_HOTKEY`) to start dictation mode. Normal background recording is paused.
   * **Auto-Type at Cursor**: Press the hotkey again when done speaking. Buddy rewrites what you said into concise, clear, professional text with Gemini (it is not a word-for-word transcript): fillers, repetitions and false starts go, self-corrections are applied, lists become `•` bullets on separate lines, and Chinese, English or mixed speech stays in the language you used. The result is pasted at the cursor in your active window.
+  * **Personal Vocabulary**: Click **Edit Dictation Vocabulary** to list names and terms Buddy should spell your way, one per line, plus `heard -> meant` lines for words Gemini keeps getting wrong (e.g. `Shivon -> Siobhan`). The file is `%USERPROFILE%\.buddy\dictation_vocabulary.txt`; it stays on your machine (it is sent to Gemini with each dictation) and edits apply to the next dictation.
   * **Muted Mic Warning**: If the microphone records only silence, Buddy tells you straight away instead of returning nothing.
   * **Recent Dictations History**: The 5 most recent dictation transcripts are accessible via the tray icon submenu. Clicking any transcript copies it immediately to your clipboard.
   * **Dictation History**: Every dictation is also saved to `%USERPROFILE%\.buddy\dictations\YYYY-MM-DD.md`, with the model used and how long it took.

@@ -1,7 +1,8 @@
 # Dictation model evaluation
 
-How we chose the Gemini model for Buddy's dictation (Right Alt), how we measured it, and how to run
-the evaluation again when new models come out. Last run: 31 October 2026, against Buddy v0.4.0.
+How we chose the Gemini model for Buddy's dictation (Right Alt) and how to send it a personal vocabulary,
+how we measured both, and how to run the evaluation again when new models come out.
+Last run: 31 October 2026, against Buddy v0.4.1.
 
 ## Recommendation
 
@@ -10,15 +11,20 @@ the evaluation again when new models come out. Last run: 31 October 2026, agains
 | Default (fast and accurate) | `gemini-3.1-flash-lite` | `"DICTATION_MODEL": "gemini-3.1-flash-lite"` (the default) |
 | Highest accuracy, about 2x slower | `gemini-3.8-flash` | `"DICTATION_MODEL": "gemini-3.8-flash"` |
 
-`gemini-3.1-flash-lite` returns a rewritten dictation in about 3.5 seconds (median) and keeps the
-facts intact more reliably than any other fast model. Its remaining errors are mishearings of rare
-names and jargon (for example "Benoit" heard as "Ben Watt"). `gemini-3.8-flash` makes fewer of those
-mistakes but takes about 6.8 seconds, which feels slow when you are waiting to paste.
+Add the names and terms you use to your vocabulary (**Edit Dictation Vocabulary** in the tray menu).
+In our tests, names on the list went from 15% to 100% spelled right and fidelity rose from 4.1 to
+4.6 out of 5, with no cost in speed. No model change came close to that.
 
-We ruled out `gemini-3.5-flash` with minimal thinking. Its scores were close, but its mistakes are the
-wrong kind for a dictation tool: it changed "Let's" to "I'll", dropped the reason from a sentence,
-and translated an English word in a Chinese sentence. You can spot and fix a mishearing at a
-glance, but a changed meaning can slip through unnoticed.
+`gemini-3.1-flash-lite` returns a rewritten dictation in about 3.3 seconds (median). Without a
+vocabulary, its remaining errors are mishearings of unusual names and of English terms inside Chinese
+speech. `gemini-3.8-flash` makes fewer of those mistakes but takes about 5.5 seconds, which feels slow
+when you are waiting to paste.
+
+We ruled out `gemini-3.5-flash` with minimal thinking. Its fidelity score was slightly higher without a
+vocabulary, but its mistakes are the wrong kind for a dictation tool: it translated English words in
+Chinese sentences ("revenue" to 收入), swapped a name for a different one, changed "Let's" to "I'll",
+and once wrote timestamps into the text. You can spot and fix a mishearing at a glance, but a changed
+meaning can slip through unnoticed.
 
 ## What dictation is asked to do
 
@@ -31,28 +37,31 @@ with a prompt (`DICTATION_PROMPT` in `src/ai/transcriber.py`) that asks for:
 - the speaker's own language: Chinese stays Chinese, and English terms in mixed speech stay English
 - `•` bullets on separate lines when the speaker lists several items, and plain sentences otherwise
 
+If the user has a vocabulary file, it goes in the request's system instruction as a spelling
+glossary (see [Vocabulary](#vocabulary) for why it goes there and not in the prompt).
+
 ## Test set
 
 Fourteen clips, made by `tools/dictation_eval/make_corpus.py`. Each clip has a script (what is said),
-an ideal result, and the expected format (bullets or plain).
+an ideal result, and the expected format (bullets or plain). Names in the clips are fictional.
 
 | Clips | Voice | What they test |
 |---|---|---|
-| `s1` to `s3` | Windows SAPI (en-GB, en-US) | Short English with fillers, a self-correction, names, numbers and percentages |
+| `s1` to `s3` | Windows SAPI (en-GB, en-US) | Short English with fillers, a self-correction, three unusual first names, numbers and percentages |
 | `g1_en_fillers` | Gemini TTS | Heavy fillers and "Wednesday, no wait, Thursday" |
-| `g2_en_jargon` | Gemini TTS | BigQuery, P+ marketplace, RTI, adserver |
+| `g2_en_jargon` | Gemini TTS | BigQuery, Kafka consumer lag, API gateway |
 | `g3_zh` | Gemini TTS | Mandarin with a time and a quarter |
-| `g4_mixed` | Gemini TTS | Mandarin with English product terms and a percentage |
+| `g4_mixed` | Gemini TTS | Mandarin with English terms and a percentage |
 | `g1` to `g4`, `_noisy` | Same, plus noise | The four clips above with low-frequency room noise at about 8 dB SNR |
 | `g5_en_list` | Gemini TTS | 21 s rambling team update with three action items and a request (should become bullets) |
-| `g6_zh_list` | Gemini TTS | 21 s Mandarin update with a three-item list (should become bullets) |
-| `g7_en_email` | Gemini TTS | 15 s rambling email paragraph (should stay prose, no bullets) |
+| `g6_zh_list` | Gemini TTS | 21 s Mandarin update with a list and a name (should become bullets) |
+| `g7_en_email` | Gemini TTS | 18 s rambling email paragraph (should stay prose, no bullets) |
 
 All clips are 16 kHz mono 16-bit WAV, the same format Buddy records for dictation.
 
 ## How each model was scored
 
-For each model, every clip was sent twice with Buddy's exact prompt, six requests at a time.
+Each clip was sent twice per model with Buddy's exact prompt, six requests at a time.
 
 - **Latency** is the wall time of the call, which is what you wait for after releasing the hotkey.
   We report the median (p50) and the 90th percentile (p90), because one slow dictation in ten is
@@ -69,38 +78,77 @@ For each model, every clip was sent twice with Buddy's exact prompt, six request
 
 ## Results
 
-### Rewrite mode (what ships)
+### Models, without a vocabulary
 
 Two runs per clip, 14 clips, judge scores out of 5:
 
 | Model | Thinking | p50 | p90 | Fidelity | Clarity | Format | Overall |
 |---|---|---|---|---|---|---|---|
-| `gemini-3.8-flash` | default | 6.84 s | 9.39 s | **4.86** | 5.00 | 4.93 | **4.93** |
-| `gemini-3.5-flash` | minimal | 3.50 s | 5.03 s | 4.54 | 4.96 | 5.00 | 4.83 |
-| **`gemini-3.1-flash-lite`** | default | 3.46 s | 5.36 s | 4.68 | 4.93 | 4.82 | 4.81 |
-| `gemini-3.6-flash` | default | 4.77 s | 7.63 s | 4.32 | 5.00 | 4.89 | 4.74 |
-| `gemini-3.5-flash-lite` | default | **2.73 s** | 3.89 s | 4.07 | 4.46 | 5.00 | 4.51 |
-| `gemini-flash-lite-latest` | default | 3.32 s | 5.44 s | 4.18 | 4.32 | 5.00 | 4.50 |
+| `gemini-3.8-flash` | default | 5.52 s | 9.47 s | **4.68** | 5.00 | 5.00 | **4.89** |
+| `gemini-3.5-flash` | minimal | 3.23 s | 5.30 s | 4.32 | 4.89 | 4.93 | 4.71 |
+| **`gemini-3.1-flash-lite`** | default | 3.30 s | 6.84 s | 4.11 | 4.89 | 4.86 | 4.62 |
+| `gemini-3.5-flash-lite` | default | **2.88 s** | 4.46 s | 3.82 | 4.29 | 4.96 | 4.36 |
+
+`gemini-3.1-flash-lite`'s low fidelity scores come almost entirely from two things: the fictional
+names in `s2` (Thibault, Siobhan and Anuj came out as "Eybold", "Shavonne" and "Anush"), and
+"BigQuery" heard as 被Query in Chinese speech. A vocabulary fixes exactly those.
+
+An earlier run of the same comparison, on a version of the clips with different names and terms, gave
+the same order (`gemini-3.8-flash` 4.93, `gemini-3.5-flash` minimal 4.83, `gemini-3.1-flash-lite`
+4.81, `gemini-3.5-flash-lite` 4.51 overall). `gemini-3.6-flash` (4.74, 4.8 s median) and
+`gemini-flash-lite-latest` (4.50) were also tested there and are not competitive.
 
 Example output from `gemini-3.1-flash-lite` for `g5_en_list` (21 seconds of rambling speech):
 
 ```
 Hey team, quick update on the launch:
 
-• The dashboard is basically done; Sunil just needs to review it.
-• The pipeline is still a bit flaky, so Heiko is looking into the retries.
+• The dashboard is basically done; Siobhan just needs to review it.
+• The pipeline is still a bit flaky, so Thibault is looking into the retries.
 • We need someone to book the room for the demo on Thursday at 2:00.
 
 Please send me your slides by Wednesday.
 ```
+
+### Vocabulary
+
+Same clips, with `tools/dictation_eval/vocabulary_example.txt` (the clips' names and a few terms):
+
+| Model | Vocabulary | p50 | p90 | Fidelity | Overall |
+|---|---|---|---|---|---|
+| `gemini-3.1-flash-lite` | none | 3.30 s | 6.84 s | 4.11 | 4.62 |
+| `gemini-3.1-flash-lite` | example | 2.90 s | 5.02 s | **4.60** | **4.77** |
+| `gemini-3.8-flash` | none | 5.52 s | 9.47 s | 4.68 | 4.89 |
+| `gemini-3.8-flash` | example | 6.25 s | 9.20 s | **5.00** | **4.99** |
+
+A real vocabulary is much longer than the example and mostly lists names that are *not* in a given
+dictation. We tested that case with a 138-term personal vocabulary (colleagues, products and tools,
+plus 60 known mishearings), none of which occur in the clips. Latency did not change (3.3 s median).
+
+How the vocabulary is sent matters as much as what is in it. On the three clips with names
+(`s2`, `g5_en_list`, `g6_zh_list`, four runs each), we counted how often a name from the vocabulary
+replaced a different name the speaker had said:
+
+| How the vocabulary was sent (`gemini-3.1-flash-lite`) | Wrong listed name inserted | Spoken names right |
+|---|---|---|
+| No vocabulary | 0 of 12 | 15% |
+| 138 terms in the prompt, told to use only clear matches | 8 of 12 | 0% |
+| 138 terms in the system instruction, as a glossary "most entries will not occur" | 1 of 12 | 0% |
+| Same, plus the 60 known mishearings (**what Buddy does**) | **0 of 12** | 6% |
+| Same framing, with the clip's names in the glossary | 0 of 12 | **100%** |
+
+With the list in the prompt, the model kept turning "Thibault" into a listed colleague's name. Sent as a
+system instruction, framed as a glossary that is mostly irrelevant, the swaps stopped. `gemini-3.8-flash`
+made no swaps with the glossary framing either. A name that is not on the list is still often
+misspelled (the last column), so add the names you dictate.
 
 ### Earlier rounds: transcription accuracy
 
 Before dictation switched to rewriting, we ran two rounds that asked for a cleaned-up transcript
 and scored it with a token error rate (word-level edit distance against the ideal text, per
 character for Chinese, after normalising formatting such as "2.3%" and "2.3 percent"). These rounds
-used the first 11 clips. They are kept here because they show which models hear accurately, and
-how much the prompt matters.
+used the first 11 clips, in an earlier version with different names and terms. They are kept here
+because they show which models hear accurately, and how much the prompt matters.
 
 **Round 1** used the prompt Buddy shipped before v0.4.0 (two runs per clip):
 
@@ -146,11 +194,11 @@ so Buddy leaves thinking at the model's default (`DICTATION_THINKING_LEVEL` is e
 ## Limits of this evaluation
 
 - The voices are synthetic. Real speech through a laptop microphone has accents, overlap and room
-  echo that text-to-speech does not, so real-world errors will be somewhat higher for every model, though the ranking
-  should hold.
-- Fourteen clips is a small set. A gap of 0.1 in the overall score is within run-to-run noise. The
-  gaps we based the decision on, such as fidelity 4.07 against 4.68, or 2.7 s against 6.8 s, are
-  well outside it.
+  echo that text-to-speech does not, so real-world errors will be somewhat higher for every model,
+  though the ranking should hold.
+- Fourteen clips is a small set. A gap of 0.1 in the overall score is within run-to-run noise (the
+  same model's p90 latency moved by more than a second between runs). The gaps we based decisions on,
+  such as 0 against 8 name swaps, or 15% against 100% names right, are well outside it.
 - The judge is itself a Gemini model, so it may favour Gemini-style phrasing. It only compared
   Gemini models with each other, and every low score was checked against the judge's note.
 - Latency was measured from one Windows laptop with six requests in flight. Your numbers will
@@ -164,9 +212,12 @@ python tools/dictation_eval/make_corpus.py
 
 # 2. Benchmark any models (append :minimal / :low to set a thinking level)
 python tools/dictation_eval/bench.py --models gemini-3.1-flash-lite,gemini-3.8-flash,gemini-3.5-flash:minimal --runs 2 --results results.json
+
+# 3. Optionally test a vocabulary, sent the way Buddy sends yours
+python tools/dictation_eval/bench.py --models gemini-3.1-flash-lite --vocabulary tools/dictation_eval/vocabulary_example.txt
 ```
 
-The bench always uses the prompt Buddy ships, so changing `DICTATION_PROMPT` and re-running shows
-the effect of a prompt change directly. The clips go to `tools/dictation_eval/corpus/`, which is
-git-ignored. A full run of six models takes about five minutes and makes about 170 dictation calls
-and 170 judge calls.
+The bench always uses the prompt and request settings Buddy ships, so changing `DICTATION_PROMPT` or
+the vocabulary handling and re-running shows the effect directly. The clips go to
+`tools/dictation_eval/corpus/`, which is git-ignored. A run of four models takes about five minutes
+and makes about 110 dictation calls and 110 judge calls.

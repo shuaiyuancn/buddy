@@ -24,6 +24,7 @@ a = Analysis(
         'src.audio.recorder',
         'src.logger',
         'src.single_instance',
+        'src.ai.vocabulary',
     ],
     hookspath=[],
     hooksconfig={},
