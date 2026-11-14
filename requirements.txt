@@ -3,7 +3,6 @@ google-genai>=2.0.0
 SoundCard>=0.4.6
 soundfile>=0.13.0
 numpy>=2.0.0
-keyring>=25.0.0
 packaging>=24.0
 requests>=2.32.0
 pyinstaller>=6.10.0

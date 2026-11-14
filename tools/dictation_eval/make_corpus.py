@@ -13,7 +13,7 @@ Clips:
 refs.json maps each clip to {"spoken": what was said, "expect": an ideal result,
 "format": "bullets" or "plain"}; the judge in bench.py compares outputs against these.
 
-Needs GEMINI_API_KEY (config.json, env var or keyring, as Buddy itself resolves it) and Windows.
+Needs the GEMINI_API_KEY environment variable (Buddy's only key source) and Windows.
 """
 import os
 import sys

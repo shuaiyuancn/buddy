@@ -28,7 +28,6 @@ def main():
     api_key = check_api_key_or_toast_and_exit()
 
     config_dict = load_full_config()
-    config_dict["GEMINI_API_KEY"] = api_key
 
     # Ensure Windows login autostart matches configuration
     autostart_enabled = config_dict.get("AUTO_START", True)

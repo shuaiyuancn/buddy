@@ -57,7 +57,6 @@ Configuration is stored in `%USERPROFILE%\.buddy\config.json`:
 
 ```json
 {
-    "GEMINI_API_KEY": "YOUR_GEMINI_API_KEY",
     "GEMINI_MODEL": "gemini-3.5-transcribe",
     "GITHUB_REPO": "shuaiyuancn/buddy",
     "AUTO_UPDATE": true,
@@ -74,10 +73,7 @@ Configuration is stored in `%USERPROFILE%\.buddy\config.json`:
 * `DICTATION_MODEL`: Gemini model for dictation. The default `"gemini-3.1-flash-lite"` takes about 3.5s and keeps facts intact best among the fast models on an English, Chinese and mixed-language test set. For the highest accuracy use `"gemini-3.8-flash"`, which takes about twice as long. See [docs/dictation-model-evaluation.md](docs/dictation-model-evaluation.md) for how models were compared and how to re-run the comparison.
 * `DICTATION_THINKING_LEVEL`: Optional thinking level for the dictation model, e.g. `"minimal"` with `"gemini-3.5-flash"`. Leave empty to use the model's default.
 * `AUTO_START`: Whether Buddy launches automatically when Windows starts (default `true`).
-* **API Key Options**:
-  * Put `GEMINI_API_KEY` in `%USERPROFILE%\.buddy\config.json`
-  * Set `GEMINI_API_KEY` environment variable
-  * Store securely in Windows Credential Manager under service `Buddy` and username `GEMINI_API_KEY`
+* **API Key**: Buddy reads the Gemini API key only from the `GEMINI_API_KEY` environment variable. Set it once with `setx GEMINI_API_KEY "your-key"`, then start Buddy again. If it is not set, Buddy shows a notification and exits. A `GEMINI_API_KEY` entry in `config.json` from older versions is ignored.
 
 ---
 

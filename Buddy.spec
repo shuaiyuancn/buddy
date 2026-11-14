@@ -9,8 +9,6 @@ a = Analysis(
     hiddenimports=[
         'google.genai',
         'google.genai.types',
-        'keyring',
-        'keyring.backends.Windows',
         'soundcard',
         'numpy',
         'requests',

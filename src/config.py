@@ -28,39 +28,17 @@ def initialize_directories():
     DICTATIONS_DIR.mkdir(parents=True, exist_ok=True)
     LOGS_DIR.mkdir(parents=True, exist_ok=True)
 
-def load_config():
-    """
-    Load configuration from CONFIG_FILE. If missing, auto-creates a 
-    template config.json with {"GEMINI_API_KEY": ""}.
-    Returns the parsed GEMINI_API_KEY or empty string if empty/missing/invalid.
-    """
-    USER_BUDDY_DIR.mkdir(parents=True, exist_ok=True)
-    if not CONFIG_FILE.exists():
-        try:
-            with open(CONFIG_FILE, "w", encoding="utf-8") as f:
-                json.dump({"GEMINI_API_KEY": ""}, f, indent=4)
-        except Exception as e:
-            print(f"[Warning] Failed to write default config template to {CONFIG_FILE}: {e}", file=sys.stderr)
-        return ""
-
-    try:
-        with open(CONFIG_FILE, "r", encoding="utf-8") as f:
-            data = json.load(f)
-            return data.get("GEMINI_API_KEY", "")
-    except Exception as e:
-        print(f"[Warning] Failed to parse {CONFIG_FILE}: {e}", file=sys.stderr)
-        return ""
-
 def load_full_config():
     """
     Load full configuration from CONFIG_FILE. If missing, auto-creates a 
     template config.json with all options.
     Returns the parsed configuration dictionary.
+    The Gemini API key is read only from the GEMINI_API_KEY environment variable, so a legacy
+    GEMINI_API_KEY entry in config.json is ignored and never included in the returned dictionary.
     """
     USER_BUDDY_DIR.mkdir(parents=True, exist_ok=True)
     
     default_config = {
-        "GEMINI_API_KEY": "",
         "GEMINI_MODEL": "gemini-3.5-transcribe",
         "GITHUB_REPO": "shuaiyuancn/buddy",
         "AUTO_UPDATE": True,
@@ -86,11 +64,13 @@ def load_full_config():
         return default_config
 
     try:
-        with open(CONFIG_FILE, "r", encoding="utf-8") as f:
+        # utf-8-sig also accepts files written with a BOM (e.g. by older installers on PowerShell 5.1)
+        with open(CONFIG_FILE, "r", encoding="utf-8-sig") as f:
             data = json.load(f)
             if not isinstance(data, dict):
                 return default_config
             merged = {**default_config, **data}
+            merged.pop("GEMINI_API_KEY", None)
             return merged
     except Exception as e:
         print(f"[Warning] Failed to parse {CONFIG_FILE}: {e}", file=sys.stderr)
@@ -107,7 +87,7 @@ def save_config_key(key: str, value) -> bool:
     try:
         current_config = {}
         if CONFIG_FILE.exists():
-            with open(CONFIG_FILE, "r", encoding="utf-8") as f:
+            with open(CONFIG_FILE, "r", encoding="utf-8-sig") as f:
                 loaded = json.load(f)
             if isinstance(loaded, dict):
                 current_config = loaded
@@ -152,49 +132,35 @@ def trigger_toast_and_exit(message: str, title: str = "Buddy - Config Error", cr
     time.sleep(3.0)
     sys.exit(exit_code)
 
-def get_secure_api_key(service_name: str = "Buddy", username: str = "GEMINI_API_KEY") -> str:
+def _config_file_has_legacy_api_key() -> bool:
     """
-    Attempts to retrieve the API key from the OS secure Credential Manager/Keyring.
-    """
-    try:
-        import keyring
-        val = keyring.get_password(service_name, username)
-        return val or ""
-    except Exception:
-        return ""
-
-def set_secure_api_key(api_key: str, service_name: str = "Buddy", username: str = "GEMINI_API_KEY") -> bool:
-    """
-    Attempts to store the API key securely into the OS Credential Manager/Keyring.
+    True if config.json still holds a non-empty GEMINI_API_KEY from an older version of Buddy.
+    The value itself is never returned, used or logged; it only drives a hint in the startup toast.
     """
     try:
-        import keyring
-        keyring.set_password(service_name, username, api_key)
-        return True
+        with open(CONFIG_FILE, "r", encoding="utf-8-sig") as f:
+            data = json.load(f)
+        value = data.get("GEMINI_API_KEY") if isinstance(data, dict) else None
+        return isinstance(value, str) and bool(value.strip())
     except Exception:
         return False
 
 def check_api_key_or_toast_and_exit():
     """
-    Verifies that the GEMINI_API_KEY is configured.
-    Checks config.json first, then environment variables, then the OS secure keyring.
-    If missing/empty everywhere, fires a native Windows Toast notification and exits immediately.
+    Verifies that the GEMINI_API_KEY environment variable is set; it is the only source of the key.
+    If it is missing or blank, fires a native Windows Toast notification and exits immediately.
     """
-    # 1. Load full config
-    config = load_full_config()
-    api_key = config.get("GEMINI_API_KEY", "")
-
-    # 2. Fallback to GEMINI_API_KEY environment variable
-    if not api_key:
-        api_key = os.environ.get("GEMINI_API_KEY", "")
-
-    # 3. Fallback to secure OS keyring
-    if not api_key:
-        api_key = get_secure_api_key()
+    api_key = os.environ.get("GEMINI_API_KEY", "").strip()
 
     # Always verify GEMINI_API_KEY (needed for speech-to-text)
     if not api_key:
-        trigger_toast_and_exit(f"GEMINI_API_KEY is missing! Enter your key in {CONFIG_FILE} and restart.")
+        message = (
+            "GEMINI_API_KEY is not set. Buddy reads it only from the environment variable. "
+            'Run: setx GEMINI_API_KEY "your-key" then start Buddy again.'
+        )
+        if _config_file_has_legacy_api_key():
+            message += " The key in config.json is no longer read."
+        trigger_toast_and_exit(message)
 
     return api_key
 
