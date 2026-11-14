@@ -250,6 +250,39 @@ def test_transcribe_chunk_room_phone_call(temp_transcript_dir):
     assert "Speaker 1: Hello, car rental service." in result
     assert "Speaker 2: Hi, I have a reservation." in result
 
+def test_gemini_clients_are_built_with_an_http_timeout(temp_transcript_dir):
+    from src.ai.transcriber import GEMINI_HTTP_TIMEOUT_MS
+    from src.audio.mixer import AudioMixer
+
+    assert GEMINI_HTTP_TIMEOUT_MS == 120_000
+    with patch("src.ai.transcriber.genai.Client") as client_cls:
+        service = TranscriberService(api_key="mock-api-key")
+        assert client_cls.call_args.kwargs["http_options"].timeout == 120_000
+
+        # A client created lazily at call time gets the timeout too
+        service.client = None
+        service.appender = FileAppender(temp_transcript_dir)
+        client_cls.return_value.models.generate_content.side_effect = Exception("offline")
+        tone = (np.sin(2 * np.pi * 440.0 * np.linspace(0, 1.0, 16000, endpoint=False)) * 0.5).astype(np.float32)
+        service._transcribe_gemini(AudioMixer.convert_to_wav_bytes(tone, sample_rate=16000))
+        assert client_cls.call_count == 2
+        assert client_cls.call_args.kwargs["http_options"].timeout == 120_000
+
+
+def test_gemini_timeout_is_returned_as_transcription_error(temp_transcript_dir):
+    from src.audio.mixer import AudioMixer
+
+    service = TranscriberService(api_key="mock-api-key")
+    service.appender = FileAppender(temp_transcript_dir)
+    service.client = MagicMock()
+    service.client.models.generate_content.side_effect = TimeoutError("The read operation timed out")
+
+    tone = (np.sin(2 * np.pi * 440.0 * np.linspace(0, 1.0, 16000, endpoint=False)) * 0.5).astype(np.float32)
+    result = service.transcribe_chunk(AudioMixer.convert_to_wav_bytes(tone, sample_rate=16000))
+
+    assert result == "[Transcription Error: The read operation timed out]"
+
+
 def test_transcribe_chunk_silence_skipped(temp_transcript_dir):
     from src.audio.mixer import AudioMixer
     import numpy as np

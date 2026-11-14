@@ -161,7 +161,7 @@ def test_on_audio_chunk_ready_submits_to_executor(qt_app):
     # Assert: Submits task to bounded thread pool
     controller.executor.submit.assert_called_once()
     args, _ = controller.executor.submit.call_args
-    assert args[0] == controller._safe_transcribe
+    assert args[0] == controller._transcription_job
     assert args[1] == dummy_wav
 
 def test_safe_transcribe_handles_errors(qt_app):
@@ -253,4 +253,64 @@ def test_safe_transcribe_passes_recording_file(qt_app):
         b"dummy_wav",
         recording_file="recording_2026-10-12_10-00-00.mp3"
     )
+
+
+def test_transcription_backlog_skips_new_windows_but_not_dictation(qt_app):
+    import numpy as np
+    from src.audio.mixer import AudioMixer
+    from src.ui.tray_icon import MAX_PENDING_TRANSCRIPTIONS
+
+    mock_audio = MagicMock()
+    mock_transcriber = MagicMock()
+    mock_transcriber.transcribe_chunk.return_value = "Me: hello"
+    controller = TrayIconController(mock_audio, mock_transcriber)
+    controller.executor = MagicMock()  # jobs stay "waiting" until run by hand below
+
+    for _ in range(MAX_PENDING_TRANSCRIPTIONS + 4):
+        controller.on_audio_chunk_ready(b"window")
+
+    # Windows are accepted while no more than MAX_PENDING_TRANSCRIPTIONS are pending, then skipped
+    assert controller.executor.submit.call_count == MAX_PENDING_TRANSCRIPTIONS + 1
+    assert controller._pending_transcriptions == MAX_PENDING_TRANSCRIPTIONS + 1
+
+    # Finishing a job frees a slot, even when the transcription itself fails
+    mock_transcriber.transcribe_chunk.side_effect = Exception("boom")
+    job, wav = controller.executor.submit.call_args_list[0].args
+    job(wav)
+    assert controller._pending_transcriptions == MAX_PENDING_TRANSCRIPTIONS
+    controller.on_audio_chunk_ready(b"window")
+    assert controller.executor.submit.call_count == MAX_PENDING_TRANSCRIPTIONS + 2
+
+    # Dictation is never skipped, however long the transcription backlog is
+    mock_audio._is_dictating = True
+    tone = (np.sin(2 * np.pi * 440.0 * np.linspace(0, 1.0, 16000, endpoint=False)) * 0.5).astype(np.float32)
+    mock_audio.stop_dictation.return_value = AudioMixer.convert_to_wav_bytes(tone, sample_rate=16000)
+    controller.on_dictation_hotkey()
+    assert controller.executor.submit.call_args.args[0] == controller._process_dictation_async
+
+
+@pytest.mark.parametrize("result", [
+    "[Transcription Error: 504 DEADLINE_EXCEEDED]",
+    "[Error: GEMINI_API_KEY environment variable is missing]",
+])
+def test_safe_transcribe_alerts_on_both_error_prefixes(qt_app, result):
+    mock_audio = MagicMock()
+    mock_transcriber = MagicMock()
+    mock_transcriber.transcribe_chunk.return_value = result
+
+    controller = TrayIconController(mock_audio, mock_transcriber)
+    controller._safe_transcribe(b"dummy")
+
+    mock_audio.warning_logged.emit.assert_called_once_with(result)
+
+
+def test_safe_transcribe_does_not_alert_on_normal_text(qt_app):
+    mock_audio = MagicMock()
+    mock_transcriber = MagicMock()
+    mock_transcriber.transcribe_chunk.return_value = "Me: the error budget is fine"
+
+    controller = TrayIconController(mock_audio, mock_transcriber)
+    controller._safe_transcribe(b"dummy")
+
+    mock_audio.warning_logged.emit.assert_not_called()
 

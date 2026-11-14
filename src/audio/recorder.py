@@ -93,34 +93,39 @@ class AudioRecorder:
             self._reset_state_locked()
             return None
 
-        all_samples = np.concatenate(self._buffer)
-        
-        if is_rotation and len(all_samples) >= self._target_samples:
-            chunk_samples = all_samples[:self._target_samples]
-            leftover_samples = all_samples[self._target_samples:]
+        total_samples = sum(len(b) for b in self._buffer)
+        if is_rotation and total_samples >= self._target_samples:
+            chunk_length = self._target_samples
         else:
-            chunk_samples = all_samples
-            leftover_samples = np.array([], dtype=chunk_samples.dtype)
+            chunk_length = total_samples
+        leftover_length = total_samples - chunk_length
 
-        duration_sec = len(chunk_samples) / self.sample_rate
+        duration_sec = chunk_length / self.sample_rate
         chunk_start = self._chunk_start_time
         has_speech = self._has_speech
 
+        # Discard if chunk is shorter than minimum flush threshold, or (Smart Filtering) if no speech
+        # occurred and silent chunk saving is disabled. Decided up front so a discarded chunk is never concatenated.
+        will_save = duration_sec >= self.min_flush_sec and (has_speech or self.save_silent_chunks)
+
+        if will_save:
+            all_samples = np.concatenate(self._buffer)
+            chunk_samples = all_samples[:chunk_length]
+            # A copy, so the carried-over tail does not pin the whole previous chunk in memory
+            leftover_samples = all_samples[chunk_length:].copy()
+        else:
+            leftover_samples = self._tail_copy_locked(leftover_length)
+
         # Setup state for the next chunk if rotating
-        if is_rotation and len(leftover_samples) > 0:
+        if is_rotation and leftover_length > 0:
             self._buffer = [leftover_samples]
-            self._total_samples = len(leftover_samples)
+            self._total_samples = leftover_length
             self._chunk_start_time = datetime.now()
             self._has_speech = False
         else:
             self._reset_state_locked()
 
-        # Discard if chunk is shorter than minimum flush threshold
-        if duration_sec < self.min_flush_sec:
-            return None
-
-        # Smart Filtering: Discard if no speech occurred and silent chunk saving is disabled
-        if not has_speech and not self.save_silent_chunks:
+        if not will_save:
             return None
 
         # Build directory and file paths
@@ -161,6 +166,25 @@ class AudioRecorder:
                 except Exception:
                     pass
             return None
+
+    def _tail_copy_locked(self, num_samples: int):
+        """
+        Returns a new array holding the last num_samples buffered samples (None if num_samples is 0),
+        concatenating only the trailing buffer pieces. Must be called while holding self._lock.
+        """
+        if num_samples <= 0:
+            return None
+        pieces = []
+        needed = num_samples
+        for piece in reversed(self._buffer):
+            if needed <= 0:
+                break
+            if len(piece) > needed:
+                piece = piece[len(piece) - needed:]
+            pieces.append(piece)
+            needed -= len(piece)
+        pieces.reverse()
+        return np.concatenate(pieces)
 
     def _reset_state_locked(self):
         """

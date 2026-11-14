@@ -25,6 +25,10 @@ logger = logging.getLogger("buddy.dictation")
 # Speech peaks well above -40 dBFS; even a quiet room on a live mic peaks around -60 dBFS.
 # A peak below this means the microphone delivered digital silence (muted or no input).
 SILENT_PEAK_DBFS = -70.0
+# Most background transcription windows allowed in flight (queued or running); newer windows are skipped beyond it
+MAX_PENDING_TRANSCRIPTIONS = 5
+# Prefixes TranscriberService uses for failed transcriptions ("[Error: ..." setup, "[Transcription Error: ..." API call)
+TRANSCRIPTION_ERROR_PREFIXES = ("[Error:", "[Transcription Error:")
 
 class TrayIconController(QObject):
     """
@@ -39,6 +43,8 @@ class TrayIconController(QObject):
         self.transcriber = transcriber_service
         self.config_dict = config_dict or getattr(transcriber_service, "config", {})
         self.executor = concurrent.futures.ThreadPoolExecutor(max_workers=2, thread_name_prefix="buddy_worker")
+        self._pending_transcriptions = 0
+        self._pending_transcriptions_lock = threading.Lock()
         self.updater = updater or AutoUpdater(parent=self)
         self.recent_transcripts = RecentTranscriptsManager()
 
@@ -371,19 +377,41 @@ class TrayIconController(QObject):
                 if hasattr(self.audio_handler, "get_current_recording_filename"):
                     recording_file = self.audio_handler.get_current_recording_filename()
             result = self.transcriber.transcribe_chunk(wav_bytes, recording_file=recording_file)
-            if result and result.startswith("[Error:"):
+            if result and result.startswith(TRANSCRIPTION_ERROR_PREFIXES):
                 self.audio_handler.warning_logged.emit(result)
         except Exception as e:
             self.audio_handler.warning_logged.emit(f"Transcription Error: {str(e)}")
+
+    def _transcription_job(self, wav_bytes: bytes):
+        """Worker-pool job for one background window; releases its slot in the pending count when done."""
+        try:
+            self._safe_transcribe(wav_bytes)
+        finally:
+            with self._pending_transcriptions_lock:
+                self._pending_transcriptions -= 1
 
     @Slot()
     def on_audio_chunk_ready(self, wav_bytes: bytes):
         """
         Triggered asynchronously whenever a 60-second sliding buffer completes.
-        Dispatches transcription work safely to the thread pool.
+        Dispatches transcription work safely to the thread pool, skipping the window when more than
+        MAX_PENDING_TRANSCRIPTIONS are already in flight (e.g. Gemini is slow or unreachable).
+        Dictation jobs do not go through here and are never skipped.
         """
         if hasattr(self, "executor") and self.executor is not None:
-            self.executor.submit(self._safe_transcribe, wav_bytes)
+            with self._pending_transcriptions_lock:
+                pending = self._pending_transcriptions
+                if pending <= MAX_PENDING_TRANSCRIPTIONS:
+                    self._pending_transcriptions += 1
+            if pending > MAX_PENDING_TRANSCRIPTIONS:
+                logger.warning(f"Transcription backlog: {pending} windows already pending; skipping this window")
+                return
+            try:
+                self.executor.submit(self._transcription_job, wav_bytes)
+            except BaseException:
+                with self._pending_transcriptions_lock:
+                    self._pending_transcriptions -= 1
+                raise
 
     @Slot()
     def on_open_transcripts_folder(self):

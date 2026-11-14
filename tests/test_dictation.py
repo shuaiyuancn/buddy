@@ -87,6 +87,45 @@ def test_audio_stream_handler_dictation_lifecycle():
     assert wav_bytes[:4] == b"RIFF"
     assert wav_bytes[8:12] == b"WAVE"
 
+def test_dictation_stops_growing_at_the_limit_and_warns_once():
+    import io
+    import wave
+    import numpy as np
+    from src.audio.stream_handler import AudioStreamHandler, DICTATION_MAX_SEC, DICTATION_LIMIT_MESSAGE, MIC_SAMPLE_RATE
+
+    handler = AudioStreamHandler(config_dict={"SAVE_AUDIO_RECORDINGS": False})
+    assert DICTATION_MAX_SEC == 300
+    assert handler.dictation_max_samples == MIC_SAMPLE_RATE * 300
+    handler.dictation_max_samples = 4000  # keep the test small
+    warnings_seen = []
+    handler.warning_logged.connect(warnings_seen.append)
+
+    handler.start_dictation()
+    for _ in range(3):
+        handler.mic_queue.put(np.full(1600, 0.1, dtype=np.float32))
+    assert handler._collect_dictation_audio() is True
+    for _ in range(3):
+        handler.mic_queue.put(np.full(1600, 0.1, dtype=np.float32))
+    handler._collect_dictation_audio()
+
+    assert sum(len(c) for c in handler._dictation_buffer) == 4000
+    assert handler.mic_queue.empty()
+    assert warnings_seen == [DICTATION_LIMIT_MESSAGE]
+
+    # Audio queued after the limit is dropped on stop as well; the first 4000 samples are kept
+    handler.mic_queue.put(np.full(1600, 0.1, dtype=np.float32))
+    wav_bytes = handler.stop_dictation()
+    with wave.open(io.BytesIO(wav_bytes), "rb") as wf:
+        assert wf.getnframes() == 4000
+    assert warnings_seen == [DICTATION_LIMIT_MESSAGE]
+
+    # A new dictation starts with a fresh allowance
+    handler.start_dictation()
+    handler.mic_queue.put(np.full(1600, 0.1, dtype=np.float32))
+    handler._collect_dictation_audio()
+    assert sum(len(c) for c in handler._dictation_buffer) == 1600
+
+
 def test_transcribe_dictation_silent():
     from src.ai.transcriber import TranscriberService
     service = TranscriberService(api_key="mock-key")
