@@ -132,6 +132,12 @@ DICTATION_PROMPT = (
     "If there is no intelligible speech, output nothing."
 )
 logger = logging.getLogger("buddy.transcriber")
+GEMINI_HTTP_TIMEOUT_MS = 120_000  # Per-request HTTP timeout (ms) so a stalled Gemini call cannot block a worker forever
+
+
+def _new_gemini_client(api_key: str):
+    """Gemini client whose requests time out instead of hanging; a timeout raises like any other API error."""
+    return genai.Client(api_key=api_key, http_options=types.HttpOptions(timeout=GEMINI_HTTP_TIMEOUT_MS))
 
 
 def dictation_generate_config(thinking_level: str = None, vocabulary_instruction: str = ""):
@@ -153,7 +159,7 @@ class TranscriberService:
         self.client = None
         if self.api_key:
             try:
-                self.client = genai.Client(api_key=self.api_key)
+                self.client = _new_gemini_client(self.api_key)
             except Exception as e:
                 print(f"[Warning] Failed to initialize Gemini Client: {e}")
             
@@ -336,7 +342,7 @@ class TranscriberService:
 
         if not self.client:
             try:
-                self.client = genai.Client(api_key=self.api_key)
+                self.client = _new_gemini_client(self.api_key)
             except Exception as e:
                 return f"[Error: Failed to initialize Gemini Client: {str(e)}]"
 
@@ -461,7 +467,7 @@ class TranscriberService:
 
         if not self.client:
             try:
-                self.client = genai.Client(api_key=self.api_key)
+                self.client = _new_gemini_client(self.api_key)
             except Exception as e:
                 logger.error(f"Dictation failed: could not initialize Gemini client: {e}")
                 return "", None
@@ -538,7 +544,7 @@ class TranscriberService:
 
         if not self.client:
             try:
-                self.client = genai.Client(api_key=self.api_key)
+                self.client = _new_gemini_client(self.api_key)
             except Exception as e:
                 print(f"[Warning] Failed to initialize Gemini Client: {e}")
                 return ""
@@ -605,7 +611,7 @@ class TranscriberService:
 
         if not self.client:
             try:
-                self.client = genai.Client(api_key=self.api_key)
+                self.client = _new_gemini_client(self.api_key)
             except Exception:
                 return cleaned
 

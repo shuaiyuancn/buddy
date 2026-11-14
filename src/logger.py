@@ -1,7 +1,9 @@
 import io
 import sys
+import time
 import logging
 import threading
+import warnings
 from logging.handlers import RotatingFileHandler
 
 from src.config import LOGS_DIR
@@ -10,8 +12,51 @@ from src.version import __version__
 LOG_FILE = LOGS_DIR / "buddy.log"
 LOG_MAX_BYTES = 1024 * 1024  # Roll the log at 1 MB
 LOG_BACKUP_COUNT = 3         # Keep buddy.log.1 .. buddy.log.3
+DISCONTINUITY_WARNING_TEXT = "data discontinuity in recording"  # soundcard's warning when the capture buffer overflowed
+DISCONTINUITY_SUMMARY_SEC = 60.0  # At most one summary line per this many seconds for capture discontinuities
 
 _FORMAT = "%(asctime)s %(levelname)-7s [%(threadName)s] %(name)s: %(message)s"
+
+
+class _DiscontinuitySummary:
+    """
+    Counts soundcard "data discontinuity in recording" warnings (one per late capture read, from two
+    capture threads) and logs them as one summary line at most once per interval instead of one line each.
+    """
+    def __init__(self, logger: logging.Logger, interval_sec: float = DISCONTINUITY_SUMMARY_SEC, clock=time.monotonic):
+        self._logger = logger
+        self._interval_sec = interval_sec
+        self._clock = clock
+        self._lock = threading.Lock()
+        self._count = 0
+        self._last_report = None
+
+    def record(self):
+        with self._lock:
+            self._count += 1
+            now = self._clock()
+            if self._last_report is not None and now - self._last_report < self._interval_sec:
+                return
+            span = self._interval_sec if self._last_report is None else now - self._last_report
+            count, self._count = self._count, 0
+            self._last_report = now
+        noun = "discontinuity" if count == 1 else "discontinuities"
+        self._logger.warning(f"audio: {count} capture {noun} in the last {span:.0f} s")
+
+
+def _install_discontinuity_summary() -> _DiscontinuitySummary:
+    """Routes capture-discontinuity warnings to a _DiscontinuitySummary; every other warning is shown as before."""
+    summary = _DiscontinuitySummary(logging.getLogger("buddy.audio"))
+    previous_showwarning = warnings.showwarning
+
+    def showwarning(message, category, filename, lineno, file=None, line=None):
+        if DISCONTINUITY_WARNING_TEXT in str(message):
+            summary.record()
+            return
+        previous_showwarning(message, category, filename, lineno, file, line)
+
+    warnings.showwarning = showwarning
+    return summary
 
 
 class _StreamToLogger(io.TextIOBase):
@@ -74,6 +119,7 @@ def setup_logging() -> logging.Logger:
 
     sys.stdout = _StreamToLogger(logging.getLogger("stdout"), logging.INFO)
     sys.stderr = _StreamToLogger(logging.getLogger("stderr"), logging.WARNING)
+    _install_discontinuity_summary()
 
     def log_uncaught(exc_type, exc, tb):
         logging.getLogger("buddy").critical("Uncaught exception", exc_info=(exc_type, exc, tb))

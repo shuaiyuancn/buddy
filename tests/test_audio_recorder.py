@@ -4,6 +4,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 import soundfile as sf
+from unittest.mock import patch
 from src.audio.recorder import AudioRecorder
 
 @pytest.fixture
@@ -181,6 +182,75 @@ def test_wav_format_support(temp_recordings_dir):
     assert info.format == "WAV"
     assert info.subtype == "PCM_16"
     assert info.channels == 2
+
+def test_rotation_leftover_is_a_copy_not_a_view(temp_recordings_dir):
+    sr = 16000
+    recorder = AudioRecorder(
+        output_dir=temp_recordings_dir,
+        chunk_duration_sec=2,
+        sample_rate=sr,
+        audio_format="wav",
+        min_flush_sec=0.5
+    )
+
+    samples = np.random.randn(int(sr * 2.5), 2).astype(np.float32) * 0.05
+    saved = recorder.feed_chunk(samples, speech_present=True)
+
+    assert saved is not None and Path(saved).exists()
+    assert len(recorder._buffer) == 1
+    leftover = recorder._buffer[0]
+    assert leftover.base is None  # does not pin the previous chunk's array
+    np.testing.assert_array_equal(leftover, samples[sr * 2:])
+    assert recorder._total_samples == int(sr * 0.5)
+
+
+def test_silent_chunk_is_discarded_without_concatenating(temp_recordings_dir):
+    sr = 16000
+    recorder = AudioRecorder(
+        output_dir=temp_recordings_dir,
+        chunk_duration_sec=600,
+        sample_rate=sr,
+        audio_format="mp3",
+        save_silent_chunks=False,
+        min_flush_sec=1.0
+    )
+
+    for _ in range(3):
+        recorder.feed_chunk(np.zeros((sr, 2), dtype=np.float32), speech_present=False)
+    with patch("src.audio.recorder.np.concatenate", wraps=np.concatenate) as concatenate:
+        saved_path = recorder.flush()
+
+    assert saved_path is None
+    concatenate.assert_not_called()
+    assert list(temp_recordings_dir.rglob("*.*")) == []
+    assert recorder.get_current_recording_filename() is None
+    assert recorder._buffer == [] and recorder._total_samples == 0
+
+
+def test_silent_rotation_carries_the_same_leftover_into_the_next_chunk(temp_recordings_dir):
+    sr = 16000
+    recorder = AudioRecorder(
+        output_dir=temp_recordings_dir,
+        chunk_duration_sec=2,
+        sample_rate=sr,
+        audio_format="wav",
+        save_silent_chunks=False,
+        min_flush_sec=0.5
+    )
+
+    first = np.random.randn(int(sr * 1.5), 2).astype(np.float32) * 0.01
+    second = np.random.randn(sr, 2).astype(np.float32) * 0.01
+    recorder.feed_chunk(first, speech_present=False)
+    saved = recorder.feed_chunk(second, speech_present=False)
+
+    assert saved is None
+    assert list(temp_recordings_dir.rglob("*.*")) == []
+    # The 0.5 s past the 2 s boundary starts the next chunk, exactly as before
+    assert recorder._total_samples == int(sr * 0.5)
+    np.testing.assert_array_equal(recorder._buffer[0], second[int(sr * 0.5):])
+    assert recorder._buffer[0].base is None
+    assert recorder.get_current_recording_filename() is not None
+
 
 def test_disabled_recorder(temp_recordings_dir):
     recorder = AudioRecorder(
