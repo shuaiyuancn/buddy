@@ -9,7 +9,7 @@ import src.config
 from src.config import (
     initialize_directories, 
     check_api_key_or_toast_and_exit, 
-    load_config
+    load_full_config
 )
 
 @pytest.fixture
@@ -35,63 +35,20 @@ def test_initialize_directories():
     assert src.config.TRANSCRIPTS_DIR.exists()
     assert src.config.RECORDINGS_DIR.exists()
 
-def test_load_config_creates_template():
-    # Ensure config file doesn't exist initially
-    assert not src.config.CONFIG_FILE.exists()
-    
-    # load_config should create template and return empty string
-    key = load_config()
-    assert key == ""
-    assert src.config.CONFIG_FILE.exists()
-    
-    # Verify content is JSON with empty key
-    with open(src.config.CONFIG_FILE, "r", encoding="utf-8") as f:
-        data = json.load(f)
-        assert data == {"GEMINI_API_KEY": ""}
-
-def test_load_config_reads_existing_key():
-    # Pre-create config with key
-    src.config.USER_BUDDY_DIR.mkdir(parents=True, exist_ok=True)
-    with open(src.config.CONFIG_FILE, "w", encoding="utf-8") as f:
-        json.dump({"GEMINI_API_KEY": "file-secret-key-123"}, f)
-        
-    key = load_config()
-    assert key == "file-secret-key-123"
-
-def test_load_config_handles_invalid_json():
-    # Pre-create corrupt file
-    src.config.USER_BUDDY_DIR.mkdir(parents=True, exist_ok=True)
-    with open(src.config.CONFIG_FILE, "w", encoding="utf-8") as f:
-        f.write("{invalid-json")
-        
-    key = load_config()
-    assert key == ""
-
-def test_check_api_key_valid_from_file(clean_env):
-    # Setup key in file
-    src.config.USER_BUDDY_DIR.mkdir(parents=True, exist_ok=True)
-    with open(src.config.CONFIG_FILE, "w", encoding="utf-8") as f:
-        json.dump({"GEMINI_API_KEY": "file-key-abc"}, f)
-        
-    key = check_api_key_or_toast_and_exit()
-    assert key == "file-key-abc"
+def _missing_key_message():
+    """Run the key check with the toast stubbed out; return the toast message it would show."""
+    with patch("src.config.trigger_toast_and_exit", side_effect=SystemExit(1)) as mock_toast, \
+         pytest.raises(SystemExit):
+        check_api_key_or_toast_and_exit()
+    mock_toast.assert_called_once()
+    return mock_toast.call_args.args[0]
 
 def test_check_api_key_valid_from_env(clean_env):
-    # Setup empty key in file to trigger environment fallback
-    src.config.USER_BUDDY_DIR.mkdir(parents=True, exist_ok=True)
-    with open(src.config.CONFIG_FILE, "w", encoding="utf-8") as f:
-        json.dump({"GEMINI_API_KEY": ""}, f)
-        
     with patch.dict(os.environ, {"GEMINI_API_KEY": "env-key-xyz"}):
         key = check_api_key_or_toast_and_exit()
         assert key == "env-key-xyz"
 
-def test_check_api_key_missing_everywhere_exits(clean_env):
-    # Ensure empty file config
-    src.config.USER_BUDDY_DIR.mkdir(parents=True, exist_ok=True)
-    with open(src.config.CONFIG_FILE, "w", encoding="utf-8") as f:
-        json.dump({"GEMINI_API_KEY": ""}, f)
-        
+def test_check_api_key_missing_env_exits(clean_env):
     # Mock QApplication, QSystemTrayIcon, and time.sleep to assert sys.exit(1)
     with patch('src.config.QApplication'), \
          patch('src.config.QSystemTrayIcon'), \
@@ -102,17 +59,78 @@ def test_check_api_key_missing_everywhere_exits(clean_env):
         
     assert exc_info.value.code == 1
 
-def test_check_api_key_valid_from_keyring(clean_env):
+def test_check_api_key_missing_env_message(clean_env):
+    message = _missing_key_message()
+    assert "GEMINI_API_KEY is not set" in message
+    assert 'setx GEMINI_API_KEY "your-key"' in message
+    assert "config.json" not in message
+
+def test_check_api_key_blank_env_counts_as_missing(clean_env):
+    with patch.dict(os.environ, {"GEMINI_API_KEY": "   "}):
+        message = _missing_key_message()
+    assert "GEMINI_API_KEY is not set" in message
+
+def test_check_api_key_ignores_key_in_config_file(clean_env):
+    src.config.USER_BUDDY_DIR.mkdir(parents=True, exist_ok=True)
+    with open(src.config.CONFIG_FILE, "w", encoding="utf-8") as f:
+        json.dump({"GEMINI_API_KEY": "file-key-abc"}, f)
+
+    # The file key is not used: without the env var the check still fails, with the legacy hint
+    message = _missing_key_message()
+    assert "The key in config.json is no longer read." in message
+    assert "file-key-abc" not in message
+
+    # With the env var set, the env value wins and the file is left untouched
+    with patch.dict(os.environ, {"GEMINI_API_KEY": "env-key-xyz"}):
+        assert check_api_key_or_toast_and_exit() == "env-key-xyz"
+    with open(src.config.CONFIG_FILE, "r", encoding="utf-8") as f:
+        assert json.load(f) == {"GEMINI_API_KEY": "file-key-abc"}
+
+def test_check_api_key_no_legacy_hint_for_empty_file_key(clean_env):
     src.config.USER_BUDDY_DIR.mkdir(parents=True, exist_ok=True)
     with open(src.config.CONFIG_FILE, "w", encoding="utf-8") as f:
         json.dump({"GEMINI_API_KEY": ""}, f)
 
-    with patch("src.config.get_secure_api_key", return_value="keyring-stored-secret-key"):
-        key = check_api_key_or_toast_and_exit()
-        assert key == "keyring-stored-secret-key"
+    assert "config.json" not in _missing_key_message()
+
+def test_load_full_config_strips_legacy_api_key():
+    src.config.USER_BUDDY_DIR.mkdir(parents=True, exist_ok=True)
+    with open(src.config.CONFIG_FILE, "w", encoding="utf-8") as f:
+        json.dump({"GEMINI_API_KEY": "file-key-abc", "AUTO_START": False}, f)
+
+    cfg = load_full_config()
+    assert "GEMINI_API_KEY" not in cfg
+    assert cfg["AUTO_START"] is False
+
+def test_load_full_config_template_has_no_api_key():
+    assert not src.config.CONFIG_FILE.exists()
+    cfg = load_full_config()
+    assert "GEMINI_API_KEY" not in cfg
+    with open(src.config.CONFIG_FILE, "r", encoding="utf-8") as f:
+        assert "GEMINI_API_KEY" not in json.load(f)
+
+def test_load_full_config_accepts_utf8_bom():
+    # Windows PowerShell 5.1's Set-Content -Encoding UTF8 writes a BOM; older installs have such files
+    src.config.USER_BUDDY_DIR.mkdir(parents=True, exist_ok=True)
+    with open(src.config.CONFIG_FILE, "w", encoding="utf-8-sig") as f:
+        json.dump({"AUTO_START": False, "GEMINI_MODEL": "custom-model"}, f)
+    assert src.config.CONFIG_FILE.read_bytes().startswith(b"\xef\xbb\xbf")
+
+    cfg = load_full_config()
+    assert cfg["AUTO_START"] is False
+    assert cfg["GEMINI_MODEL"] == "custom-model"
+
+def test_save_config_key_accepts_utf8_bom():
+    from src.config import save_config_key
+    src.config.USER_BUDDY_DIR.mkdir(parents=True, exist_ok=True)
+    with open(src.config.CONFIG_FILE, "w", encoding="utf-8-sig") as f:
+        json.dump({"GEMINI_MODEL": "custom-model"}, f)
+
+    assert save_config_key("AUTO_START", False) is True
+    with open(src.config.CONFIG_FILE, "r", encoding="utf-8") as f:
+        assert json.load(f) == {"GEMINI_MODEL": "custom-model", "AUTO_START": False}
 
 def test_load_full_config_defaults():
-    from src.config import load_full_config
     cfg = load_full_config()
     assert cfg.get("GEMINI_MODEL") == "gemini-3.5-transcribe"
     assert cfg.get("AUTO_UPDATE") is True

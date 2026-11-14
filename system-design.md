@@ -220,7 +220,7 @@ class VoiceActivityDetector:
 
 Buddy includes an extensive automated test suite (`pytest`) covering 100% of core operational components:
 
-*   **`tests/test_config.py`**: Configuration initialization, API key discovery (file, env, keyring), missing key exit handling.
+*   **`tests/test_config.py`**: Configuration initialization, API key from the `GEMINI_API_KEY` environment variable only (legacy config.json key ignored), missing key toast-and-exit handling, BOM-tolerant config.json parsing.
 *   **`tests/test_mixer.py`**: Resampling algorithms, anti-aliased downsampling, stereo channel mapping, WAV byte formatting.
 *   **`tests/test_vad.py`**: Silence detection, human speech identification, short click rejection, multi-channel stereo analysis.
 *   **`tests/test_stream_handler.py`**: Dual-stream initialization, pause/resume synchronization, thread termination, speech activity tracking.

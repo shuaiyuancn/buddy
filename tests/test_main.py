@@ -46,7 +46,6 @@ def test_main_initialization_pipeline(
 
     # Assert: 3. Core background services are instantiated
     expected_config = {
-        "GEMINI_API_KEY": "mocked-api-key",
         "GEMINI_MODEL": "gemini-3.5-transcribe",
         "GITHUB_REPO": "shuaiyuancn/buddy",
         "AUTO_UPDATE": True,

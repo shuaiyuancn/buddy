@@ -140,4 +140,4 @@ sequenceDiagram
 
 1.  **Zero Audio Retention:** Audio chunks exist only in-memory in short-lived sliding buffers. No audio files are written to disk.
 2.  **Plain-Text Transparency:** Transcripts are saved locally in plaintext Markdown (`%USERPROFILE%\.buddy\transcripts\`), allowing easy inspection, editing, or deletion.
-3.  **Encrypted Credential Storage:** API keys are protected in the Windows Credential Manager or local configuration file (`%USERPROFILE%\.buddy\config.json`).
+3.  **Credential Handling:** The Gemini API key is read only from the `GEMINI_API_KEY` environment variable; it is never stored in `%USERPROFILE%\.buddy\config.json` or the Windows Credential Manager.

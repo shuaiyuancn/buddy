@@ -26,7 +26,6 @@ Ensure your Windows system meets these foundational prerequisites:
 | **`soundfile`** | `>= 0.12.1` | Formats sliding stereo audio chunks into in-memory WAV formats for the transcription API. |
 | **`scipy`** / **`numpy`** | `>= 1.11.0` | Digital signal processing: anti-aliasing Chebyshev filters and frame-based VAD analysis. |
 | **`google-genai`** | `>= 2.0.0` | Official modern Google GenAI SDK for Gemini 3.5 Transcribe with native speaker diarization. |
-| **`keyring`** | `>= 24.3.0` | Securely queries and writes credentials to the Windows Credential Manager. |
 | **`requests`** | `>= 2.31.0` | Hourly GitHub Releases checking and chunked binary update downloading. |
 | **`packaging`** | `>= 23.0` | Semantic version parsing and release comparison for the auto-updater. |
 | **`pyinstaller`** | `>= 6.3.0` | Standalone bundle compiler to compile Buddy into a single, console-less `.exe`. |
@@ -72,7 +71,7 @@ c:\workspace\buddy\
 ├── src/                        # Source Directory
 │   ├── __init__.py
 │   ├── main.py                 # Application Entry Point & Orchestrator
-│   ├── config.py               # Key storage and config.json manager
+│   ├── config.py               # API key check and config.json manager
 │   ├── version.py              # Single source of truth for version (__version__)
 │   ├── updater.py              # Auto-updater with GitHub Releases API & process restart
 │   │
@@ -116,7 +115,6 @@ C:\Users\<Username>\.buddy\
 ### Full config.json Options
 ```json
 {
-    "GEMINI_API_KEY": "YOUR_GEMINI_API_KEY",
     "GEMINI_MODEL": "gemini-3.5-transcribe",
     "GITHUB_REPO": "shuaiyuancn/buddy",
     "AUTO_UPDATE": true,
@@ -124,7 +122,7 @@ C:\Users\<Username>\.buddy\
     "AUTO_START": true
 }
 ```
-*   `"GEMINI_API_KEY"`: API key for Google Gemini transcription.
+*   The Gemini API key is not stored in `config.json`: Buddy reads it only from the `GEMINI_API_KEY` environment variable (`setx GEMINI_API_KEY "your-key"`).
 *   `"GEMINI_MODEL"`: Model used for Gemini transcription (default `"gemini-3.5-transcribe"`).
 *   `"GITHUB_REPO"`: GitHub repository (`"owner/repo"`) for checking releases and downloading updates.
 *   `"AUTO_UPDATE"`: Set to `true` to enable automatic background checks and downloads.

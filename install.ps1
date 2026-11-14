@@ -135,14 +135,14 @@ if (-not (Test-Path $UserBuddyConfigDir)) {
 }
 if (-not (Test-Path $ConfigFile)) {
     $DefaultConfig = @{
-        "GEMINI_API_KEY"              = ""
         "GEMINI_MODEL"                = "gemini-3.5-transcribe"
         "GITHUB_REPO"                 = $Repo
         "AUTO_UPDATE"                 = $true
         "UPDATE_CHECK_INTERVAL_HOURS" = 1
         "AUTO_START"                  = $true
     } | ConvertTo-Json -Depth 4
-    Set-Content -Path $ConfigFile -Value $DefaultConfig -Encoding UTF8
+    # Write UTF-8 without a BOM: Set-Content -Encoding UTF8 adds one on Windows PowerShell 5.1
+    [System.IO.File]::WriteAllText($ConfigFile, $DefaultConfig, (New-Object System.Text.UTF8Encoding($false)))
     Write-Host "      Created default config template at $ConfigFile" -ForegroundColor Green
 }
 
