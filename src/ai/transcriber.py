@@ -133,11 +133,19 @@ DICTATION_PROMPT = (
 )
 logger = logging.getLogger("buddy.transcriber")
 GEMINI_HTTP_TIMEOUT_MS = 120_000  # Per-request HTTP timeout (ms) so a stalled Gemini call cannot block a worker forever
+# google-genai 3.x defaults to the v1 API, which rejects audio_transcription_config (diarization) with a 400.
+GEMINI_API_VERSION = "v1beta"
 
 
 def _new_gemini_client(api_key: str):
-    """Gemini client whose requests time out instead of hanging; a timeout raises like any other API error."""
-    return genai.Client(api_key=api_key, http_options=types.HttpOptions(timeout=GEMINI_HTTP_TIMEOUT_MS))
+    """
+    Gemini client pinned to the v1beta API, whose requests time out instead of hanging;
+    a timeout raises like any other API error.
+    """
+    return genai.Client(
+        api_key=api_key,
+        http_options=types.HttpOptions(api_version=GEMINI_API_VERSION, timeout=GEMINI_HTTP_TIMEOUT_MS),
+    )
 
 
 def dictation_generate_config(thinking_level: str = None, vocabulary_instruction: str = ""):
@@ -408,6 +416,7 @@ class TranscriberService:
                 
             return transcribed_text
         except Exception as e:
+            logger.error(f"Transcription failed with {self.gemini_model} ({recording_file or 'no recording file'}): {e}")
             error_msg = f"[Transcription Error: {str(e)}]"
             self.appender.append_transcription(error_msg, recording_file=recording_file)
             return error_msg
