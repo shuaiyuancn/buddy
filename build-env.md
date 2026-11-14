@@ -25,7 +25,7 @@ Ensure your Windows system meets these foundational prerequisites:
 | **`sounddevice`** | `>= 0.4.6` | Hardware microphone input capture. |
 | **`soundfile`** | `>= 0.12.1` | Formats sliding stereo audio chunks into in-memory WAV formats for the transcription API. |
 | **`scipy`** / **`numpy`** | `>= 1.11.0` | Digital signal processing: anti-aliasing Chebyshev filters and frame-based VAD analysis. |
-| **`google-genai`** | `>= 2.0.0` | Official modern Google GenAI SDK for Gemini 3.5 Transcribe with native speaker diarization. |
+| **`google-genai`** | `>= 3.0.0, < 4` | Official modern Google GenAI SDK for Gemini 3.5 Transcribe with native speaker diarization. |
 | **`requests`** | `>= 2.31.0` | Hourly GitHub Releases checking and chunked binary update downloading. |
 | **`packaging`** | `>= 23.0` | Semantic version parsing and release comparison for the auto-updater. |
 | **`pyinstaller`** | `>= 6.3.0` | Standalone bundle compiler to compile Buddy into a single, console-less `.exe`. |

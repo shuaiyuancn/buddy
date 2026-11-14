@@ -269,6 +269,41 @@ def test_gemini_clients_are_built_with_an_http_timeout(temp_transcript_dir):
         assert client_cls.call_args.kwargs["http_options"].timeout == 120_000
 
 
+def test_gemini_clients_use_the_v1beta_api(temp_transcript_dir):
+    # google-genai 3.x defaults to v1, which rejects audio_transcription_config with a 400
+    from src.audio.mixer import AudioMixer
+
+    with patch("src.ai.transcriber.genai.Client") as client_cls:
+        service = TranscriberService(api_key="mock-api-key")
+        assert client_cls.call_args.kwargs["http_options"].api_version == "v1beta"
+
+        # A client created lazily at call time is pinned too
+        service.client = None
+        service.appender = FileAppender(temp_transcript_dir)
+        client_cls.return_value.models.generate_content.side_effect = Exception("offline")
+        tone = (np.sin(2 * np.pi * 440.0 * np.linspace(0, 1.0, 16000, endpoint=False)) * 0.5).astype(np.float32)
+        service._transcribe_gemini(AudioMixer.convert_to_wav_bytes(tone, sample_rate=16000))
+        assert client_cls.call_count == 2
+        assert client_cls.call_args.kwargs["http_options"].api_version == "v1beta"
+
+
+def test_transcription_failure_is_logged(temp_transcript_dir, caplog):
+    from src.audio.mixer import AudioMixer
+
+    service = TranscriberService(api_key="mock-api-key")
+    service.appender = FileAppender(temp_transcript_dir)
+    service.client = MagicMock()
+    service.client.models.generate_content.side_effect = Exception("400 INVALID_ARGUMENT")
+    tone = (np.sin(2 * np.pi * 440.0 * np.linspace(0, 1.0, 16000, endpoint=False)) * 0.5).astype(np.float32)
+
+    with caplog.at_level("ERROR", logger="buddy.transcriber"):
+        result = service._transcribe_gemini(AudioMixer.convert_to_wav_bytes(tone, sample_rate=16000), recording_file="rec.mp3")
+
+    assert result.startswith("[Transcription Error")
+    assert "400 INVALID_ARGUMENT" in caplog.text
+    assert "rec.mp3" in caplog.text
+
+
 def test_gemini_timeout_is_returned_as_transcription_error(temp_transcript_dir):
     from src.audio.mixer import AudioMixer
 
